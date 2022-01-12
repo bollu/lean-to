@@ -238,6 +238,7 @@ class AsmLangServer:
 
     def execute(self, code):
         code = code.strip()
+        code = code.strip(";")
         code = code.split()
 
         self.count -= 1
@@ -422,6 +423,38 @@ def shell_handler(msg):
         send(iopub_stream, 'status', content, parent_header=msg['header'])
         #######################################################################
         EXECUTION_COUNT += 1
+    elif msg['header']["msg_type"] == "is_complete_request":
+        ## Return if line is complete. We say yes if ends if semicolon.
+        # https://jupyter-client.readthedocs.io/en/stable/messaging.html#completion
+        content = {
+            'execution_state': "busy",
+        }
+        send(iopub_stream, 'status', content, parent_header=msg['header'])
+        #######################################################################
+        is_complete_request_code = msg['content']['code'].strip()
+        metadata = {
+            "dependencies_met": True,
+            "engine": ENGINE_ID,
+            "status": "ok",
+            "started": datetime.datetime.now().isoformat(),
+        }
+        ends_with_semicolon = False
+        if is_complete_request_code:
+            ends_with_semicolon = is_complete_request_code[-1] == ';'
+
+        content = {
+            "status": 'complete' if ends_with_semicolon else 'incomplete',
+            "indent": "  " # two space indentation
+
+        }
+        send(shell_stream, 'is_complete_reply', content, metadata=metadata,
+            parent_header=msg['header'], identities=identities)
+        #######################################################################
+        content = {
+            'execution_state': "idle",
+        }
+        send(iopub_stream, 'status', content, parent_header=msg['header'])
+        #######################################################################
 
     else:
         dprint(1, "unknown msg_type:", msg['header']["msg_type"])
