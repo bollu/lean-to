@@ -228,7 +228,8 @@ class AsmLangServer:
             return
 
         if len(code_splitted) > len(expected_format):
-            stdout=f"{Colors.RED}ERROR:{Colors.END} too many args. Expected: {expected_format} | found: {code_splitted}"
+            stdout=f"{Colors.RED}ERROR:{Colors.END}" + \
+                f"too many args. Expected: {expected_format} | found: {code_splitted}"
             raise AsmLangException(stdout=stdout, result={})
 
         if len(code_splitted) < len(expected_format):
@@ -257,10 +258,13 @@ class AsmLangServer:
                     r = {} # {"text/plain": "RESULT add"}
                     return AsmLangResponse(stdout=f"STDOUT: {self.regfile[code[1]]}\n", result=r)
             elif len(code) == 1:
-                r = {"text/plain": f"{self.eval_expr(code[0])}"}
+                r = {"text/plain": f"{self.eval_expr(code[0])}",
+                     "text/html": "<a href='https://pixel-druid.com'><i>i</i><b>tal</b><u>ic</u></a>"}
                 return AsmLangResponse(stdout="", result=r)
             else:
-                raise AsmLangException(stdout=f"{Colors.RED}ERROR:{Colors.END} Unknown command: |{code[0]}|\n", result={})
+                raise AsmLangException(stdout=f"{Colors.RED}ERROR:{Colors.END}" + \
+                                       "Unknown command: |{code[0]}|\n",
+                                       result={})
         except AsmLangException as e:
            return e.response
 
@@ -271,20 +275,20 @@ LANG_SERVER = AsmLangServer()
 # In general, the ROUTER/DEALER sockets follow a request-reply pattern:
 # --------------------------------------------------------------------
 
-# The client sends an <action>_request message (such as execute_request) on its
+# 1. The client sends an <action>_request message (such as execute_request) on its
 # shell (DEALER) socket.
 # 
-# The kernel receives that request and immediately
+# 2. The kernel receives that request and immediately
 # publishes a status: busy message on IOPub.
 # 
-# The kernel then processes the
+# 3. The kernel then processes the
 # request and sends the appropriate <action>_reply message, such as
 # execute_reply. 
 # 
-# After processing the request and publishing associated IOPub
+# 4. After processing the request and publishing associated IOPub
 # messages, if any, the kernel publishes a status: idle message. 
 # 
-# This idle status message indicates that IOPub messages
+# 5. This idle status message indicates that IOPub messages
 # associated with a given request have all been received.
 
 
@@ -310,7 +314,7 @@ def shell_handler(msg):
         lang_server_response = LANG_SERVER.execute(msg_content_code)
         dprint(1, "executed code.")
 
-        ## vvv TODO: what does this do? This tells the notebook what is being executted
+        ## vvv TODO: what does this do? This tells the notebook what is being executed
         ## https://jupyter-client.readthedocs.io/en/stable/messaging.html#code-inputs
         content = {
             'execution_count': EXECUTION_COUNT,
