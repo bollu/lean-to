@@ -1,10 +1,15 @@
 .PHONY: run
 
+# v WORKS
 run-console: 
 	jupyter console --KernelManager.kernel_cmd="['python3', './simple_kernel.py','{connection_file}']"
 
-run-notebook:
-	jupyter console --KernelManager.kernel_cmd="['python3', './simple_kernel.py','{connection_file}']" --ip=''
+# v BORKED [reasons unknown]
+run-notebook: install-kernel
+	jupyter notebook --ip='0.0.0.0' \
+		--KernelManager.kernel_cmd="['python3', './simple_kernel.py','{connection_file}']" 
 
-asm-kernel:
-	clang++ asm-kernel.cpp -o asm-kernel -std=c++-17 -fsanitize=address,undefined
+# v WORKS 
+install-kernel:
+	mkdir -p ${HOME}/.local/share/jupyter/kernels/asm
+	cp -r kernelspec/* ${HOME}/.local/share/jupyter/kernels/asm/

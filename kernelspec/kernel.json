@@ -1,6 +1,7 @@
 {
  "argv": [
-  "asmkernel_launcher",
+  "python3",
+	"simple_kernel.py",
   "{connection_file}"
  ],
  "display_name": "Asm (jupyter kernel)",
