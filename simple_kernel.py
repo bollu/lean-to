@@ -19,6 +19,11 @@
 # Start with a command, such as:
 # ipython console --KernelManager.kernel_cmd="['python', 'simple_kernel.py', '{connection_file}']"
 
+
+
+# Widget handling as detailed by IHaskell folks:
+# https://github.com/gibiansky/IHaskell/blob/master/ihaskell-display/ihaskell-widgets/MsgSpec.md
+
 from __future__ import print_function
 
 ## General Python imports:
