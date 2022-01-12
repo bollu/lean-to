@@ -266,6 +266,28 @@ class AsmLangServer:
 
 LANG_SERVER = AsmLangServer()
 
+
+# In general, the ROUTER/DEALER sockets follow a request-reply pattern:
+# --------------------------------------------------------------------
+
+# The client sends an <action>_request message (such as execute_request) on its
+# shell (DEALER) socket.
+# 
+# The kernel receives that request and immediately
+# publishes a status: busy message on IOPub.
+# 
+# The kernel then processes the
+# request and sends the appropriate <action>_reply message, such as
+# execute_reply. 
+# 
+# After processing the request and publishing associated IOPub
+# messages, if any, the kernel publishes a status: idle message. 
+# 
+# This idle status message indicates that IOPub messages
+# associated with a given request have all been received.
+
+
+
 # Socket Handlers:
 def shell_handler(msg):
     global EXECUTION_COUNT
@@ -277,17 +299,18 @@ def shell_handler(msg):
     # process request:
 
     if msg['header']["msg_type"] == "execute_request":
-        msg_content_code = msg['content']['code']
         content = {
             'execution_state': "busy",
         }
         send(iopub_stream, 'status', content, parent_header=msg['header'])
         #######################################################################
+        msg_content_code = msg['content']['code']
         dprint(1, "simple_kernel Executing:", pformat(msg_content_code))
         lang_server_response = LANG_SERVER.execute(msg_content_code)
         dprint(1, "executed code.")
 
-        ## vvv TODO: what does this do?
+        ## vvv TODO: what does this do? This tells the notebook what is being executted
+        ## https://jupyter-client.readthedocs.io/en/stable/messaging.html#code-inputs
         content = {
             'execution_count': EXECUTION_COUNT,
             'code': msg_content_code
@@ -327,6 +350,7 @@ def shell_handler(msg):
         }
         send(shell_stream, 'execute_reply', content, metadata=metadata,
             parent_header=msg['header'], identities=identities)
+        ##################################################################
         EXECUTION_COUNT += 1
     elif msg['header']["msg_type"] == "kernel_info_request":
         content = {
@@ -355,7 +379,50 @@ def shell_handler(msg):
     elif msg['header']["msg_type"] == "history_request":
         dprint(1, "unhandled history request")
     elif msg['header']["msg_type"] == "complete_request":
-        dprint(1, "unhandled tab complete request")
+        # https://jupyter-client.readthedocs.io/en/stable/messaging.html#completion
+        # dprint(1, "unhandled tab complete request")
+        #### 
+        content = {
+            'execution_state': "busy",
+        }
+        send(iopub_stream, 'status', content, parent_header=msg['header'])
+        #######################################################################
+        #dprint(1, "handling complete request...")
+        completion_request_code = msg['content']['code']
+        completion_request_cursor_pos = int(msg['content']['cursor_pos'])
+        #content = {
+        #    'execution_count': EXECUTION_COUNT,
+        #    "matches": ["comp1", "comp2"],
+        #    "cursor_start": completion_request_cursor_pos,
+        #    "cursor_end": completion_request_cursor_pos,
+        #    'metadata': {}
+        #}
+        #send(iopub_stream, 'complete_result', content, parent_header=msg['header'])
+        ###########################################################################
+        metadata = {
+            "dependencies_met": True,
+            "engine": ENGINE_ID,
+            "status": "ok",
+            "started": datetime.datetime.now().isoformat(),
+        }
+        content = {
+            "status": "ok",
+            "matches": ["comp1", "comp2", "comp3"],
+            "cursor_start": completion_request_cursor_pos,
+            "cursor_end": completion_request_cursor_pos,
+            'metadata': {}
+
+        }
+        send(shell_stream, 'complete_reply', content, metadata=metadata,
+            parent_header=msg['header'], identities=identities)
+        #######################################################################
+        content = {
+            'execution_state': "idle",
+        }
+        send(iopub_stream, 'status', content, parent_header=msg['header'])
+        #######################################################################
+        EXECUTION_COUNT += 1
+
     else:
         dprint(1, "unknown msg_type:", msg['header']["msg_type"])
 
