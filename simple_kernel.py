@@ -43,13 +43,13 @@ PYTHON3 = sys.version_info.major == 3
 DELIM = b"<IDS|MSG>"
 
 debug_level = 3 # 0 (none) to 3 (all) for various levels of detail
-exiting = False
-engine_id = str(uuid.uuid4())
+EXITING = False
+ENGINE_ID = str(uuid.uuid4())
 
 # Utility functions:
 def shutdown():
-    global exiting
-    exiting = True
+    global EXITING
+    EXITING = True
     ioloop.IOLoop.instance().stop()
 
 def dprint(level, *args, **kwargs):
@@ -57,6 +57,9 @@ def dprint(level, *args, **kwargs):
     if level <= debug_level:
         print("DEBUG:", *args, **kwargs)
         sys.stdout.flush()
+        with open("simple_kernel.log", "w") as LOGFILE:
+            print("DEBUG:", *args, **kwargs, file=LOGFILE)
+            LOGFILE.flush()
 
 def msg_id():
     """ Return a new uuid for message id """
@@ -80,7 +83,7 @@ def new_header(msg_type):
             "date": datetime.datetime.now().isoformat(),
             "msg_id": msg_id(),
             "username": "kernel",
-            "session": engine_id,
+            "session": ENGINE_ID,
             "msg_type": msg_type,
             "version": "5.0",
         }
@@ -118,7 +121,7 @@ def send(stream, msg_type, content=None, parent_header=None, metadata=None, iden
 
 def run_thread(loop, name):
     dprint(2, "Starting loop for '%s'..." % name)
-    while not exiting:
+    while not EXITING:
         dprint(2, "%s Loop!" % name)
         try:
             loop.start()
@@ -130,7 +133,7 @@ def run_thread(loop, name):
                 raise
         except Exception:
             dprint(2, "%s Exception!" % name)
-            if exiting:
+            if EXITING:
                 break
             else:
                 raise
@@ -140,7 +143,7 @@ def run_thread(loop, name):
 
 def heartbeat_loop():
     dprint(2, "Starting loop for 'Heartbeat'...")
-    while not exiting:
+    while not EXITING:
         dprint(3, ".", end="")
         try:
             zmq.device(zmq.FORWARDER, heartbeat_socket, heartbeat_socket)
@@ -153,9 +156,30 @@ def heartbeat_loop():
             break
 
 
+# In [3]: def stdout_and_result(): print("stdout"); return "result"
+# In [4]: stdout_and_result()
+# stdout # <- stdout
+# Out[4]: 'result' # <- response
+class AsmLangResponse:
+    def __init__(self, stdout, result):
+        self.stdout = stdout# auxiliary data to be printed in stdout
+        self.result = result # data shown as Out
+
+class AsmLangServer:
+    def __init__(self):
+        self.count = 0;
+        pass
+    def execute(self, code):
+        self.count += 10;
+        return AsmLangResponse(stdout=f"stdout({self.count}):{code}",
+                               result=f"result({self.count}):{code}")
+
+LANG_SERVER = AsmLangServer()
+
 # Socket Handlers:
 def shell_handler(msg):
-    global execution_count
+    global EXECUTION_COUNT
+    global LANG_SERVER
     dprint(1, "shell received:", msg)
     position = 0
     identities, msg = deserialize_wire_msg(msg)
@@ -163,27 +187,30 @@ def shell_handler(msg):
     # process request:
 
     if msg['header']["msg_type"] == "execute_request":
-        dprint(1, "simple_kernel Executing:", pformat(msg['content']["code"]))
+        msg_content_code = msg['content']['code']
+        dprint(1, "simple_kernel Executing:", pformat(msg_content_code))
+        lang_server_response = LANG_SERVER.execute(msg_content_code)
+        dprint(1, "executed code.")
         content = {
             'execution_state': "busy",
         }
         send(iopub_stream, 'status', content, parent_header=msg['header'])
         #######################################################################
         content = {
-            'execution_count': execution_count,
-            'code': msg['content']["code"],
+            'execution_count': EXECUTION_COUNT,
+            'code': msg_content_code
         }
         send(iopub_stream, 'execute_input', content, parent_header=msg['header'])
         #######################################################################
         content = {
             'name': "stdout",
-            'text': "hello, world",
+            'text': lang_server_response.stdout
         }
         send(iopub_stream, 'stream', content, parent_header=msg['header'])
         #######################################################################
         content = {
-            'execution_count': execution_count,
-            'data': {"text/plain": "result!"},
+            'execution_count': EXECUTION_COUNT,
+            'data': {"text/plain": lang_server_response.result},
             'metadata': {}
         }
         send(iopub_stream, 'execute_result', content, parent_header=msg['header'])
@@ -195,20 +222,20 @@ def shell_handler(msg):
         #######################################################################
         metadata = {
             "dependencies_met": True,
-            "engine": engine_id,
+            "engine": ENGINE_ID,
             "status": "ok",
             "started": datetime.datetime.now().isoformat(),
         }
         content = {
             "status": "ok",
-            "execution_count": execution_count,
+            "execution_count": EXECUTION_COUNT,
             "user_variables": {},
             "payload": [],
             "user_expressions": {},
         }
         send(shell_stream, 'execute_reply', content, metadata=metadata,
             parent_header=msg['header'], identities=identities)
-        execution_count += 1
+        EXECUTION_COUNT += 1
     elif msg['header']["msg_type"] == "kernel_info_request":
         content = {
             "protocol_version": "5.0",
@@ -253,6 +280,7 @@ def deserialize_wire_msg(wire_msg):
     m['parent_header'] = decode(msg_frames[1])
     m['metadata']      = decode(msg_frames[2])
     m['content']       = decode(msg_frames[3])
+    # bollu:only necessary for paranoia.
     check_sig = sign(msg_frames)
     if check_sig != m_signature:
         raise ValueError("Signatures do not match")
@@ -260,7 +288,7 @@ def deserialize_wire_msg(wire_msg):
     return identities, m
 
 def control_handler(wire_msg):
-    global exiting
+    global EXITING
     dprint(1, "control received:", wire_msg)
     identities, msg = deserialize_wire_msg(wire_msg)
     # Control message handler:
@@ -307,7 +335,7 @@ signature_schemes = {"hmac-sha256": hashlib.sha256}
 auth = hmac.HMAC(
     secure_key,
     digestmod=signature_schemes[config["signature_scheme"]])
-execution_count = 1
+EXECUTION_COUNT = 1
 
 ##########################################
 # Heartbeat:
