@@ -46,6 +46,9 @@ debug_level = 3 # 0 (none) to 3 (all) for various levels of detail
 EXITING = False
 ENGINE_ID = str(uuid.uuid4())
 
+with open("simple_kernel.log", "a") as LOGFILE:
+    print("vvvNEW SESSIONvvv", file=LOGFILE)
+
 # Utility functions:
 def shutdown():
     global EXITING
@@ -57,7 +60,7 @@ def dprint(level, *args, **kwargs):
     if level <= debug_level:
         print("DEBUG:", *args, **kwargs)
         sys.stdout.flush()
-        with open("simple_kernel.log", "w") as LOGFILE:
+        with open("simple_kernel.log", "a") as LOGFILE:
             print("DEBUG:", *args, **kwargs, file=LOGFILE)
             LOGFILE.flush()
 
@@ -194,22 +197,72 @@ class Colors:
     END = "\033[0m"
 
 
+class AsmLangException(Exception):
+    def __init__(self, stdout:str, result:str):
+        self.response = AsmLangResponse(stdout, result)
+
 class AsmLangServer:
     def __init__(self):
         self.count = 0;
-        pass
+        self.regfile = {}
+
+
+    def eval_expr(self, v):
+        try:
+            return int(v)
+        except ValueError:
+            if v in self.regfile:
+                return self.regfile[v]
+            else:
+                stdout=f"{Colors.RED}ERROR:{Colors.END} unknown register |{v}|\n"
+                raise AsmLangException(stdout=stdout, result={})
+
+    @classmethod
+    def assert_instruction_length(cls, code_splitted, expected_format):
+        """
+        code_splitted: list[str]
+        expected_format: list[str]
+        check that lengths are equal. if unequal, print what is missing
+        """
+        if len(code_splitted) == len(expected_format):
+            return
+
+        if len(code_splitted) > len(expected_format):
+            stdout=f"{Colors.RED}ERROR:{Colors.END} too many args. Expected: {expected_format} | found: {code_splitted}"
+            raise AsmLangException(stdout=stdout, result={})
+
+        if len(code_splitted) < len(expected_format):
+            stdout=f"{Colors.RED}ERROR:{Colors.END} too few args. Expected: {expected_format} |" + \
+                f"found: {code_splitted} | missing: [{' '.join(expected_format[len(code_splitted):])}]"
+            raise AsmLangException(stdout=stdout, result={})
+
     def execute(self, code):
         code = code.strip()
-        self.count -= 1; # to distinguish from other counters
-        result = {"text/plain": "|no result|" } # no result
-        if code == "out":
-            result = { "text/plain": f"result({self.count}):{code}" } # text
-        elif code == "err":
-            result = { "text/plain": f"result({self.count}):{Colors.RED}{code}{Colors.END}" } # colors
-        elif code == "noresult":
-            result = {} # no result
-        return AsmLangResponse(stdout=f"stdout({self.count}):|{code}|\n",
-                               result=result)
+        code = code.split()
+
+        self.count -= 1
+        try:
+            if len(code) == 0:
+                ERROR_STR = f"{Colors.RED}ERROR:{Colors.END} unknown code |{code}|\n"
+                raise AsmLangException(stdout=ERROR_STR, result={})
+            if code[0] == "set":
+                    self.assert_instruction_length(code, ["set", "var", "val"])
+                    self.regfile[code[1]] = self.eval_expr(code[2])
+                    r = {} # {"text/plain": "RESULT set"}
+                    return AsmLangResponse(stdout=f"STDOUT: {self.regfile[code[1]]}\n", result=r)
+            elif code[0] == "add":
+                    self.assert_instruction_length(code, ["add", "var", "val1", "val2"])
+                    self.regfile[code[1]] = self.eval_expr(code[2]) + self.eval_expr(code[3])
+                    r = {} # {"text/plain": "RESULT add"}
+                    return AsmLangResponse(stdout=f"STDOUT: {self.regfile[code[1]]}\n", result=r)
+            elif len(code) == 1:
+                r = {"text/plain": f"{self.eval_expr(code[0])}"}
+                return AsmLangResponse(stdout="", result=r)
+            else:
+                raise AsmLangException(stdout=f"{Colors.RED}ERROR:{Colors.END} Unknown command: |{code[0]}|\n", result={})
+        except AsmLangException as e:
+           return e.response
+
 
 LANG_SERVER = AsmLangServer()
 
@@ -225,14 +278,16 @@ def shell_handler(msg):
 
     if msg['header']["msg_type"] == "execute_request":
         msg_content_code = msg['content']['code']
-        dprint(1, "simple_kernel Executing:", pformat(msg_content_code))
-        lang_server_response = LANG_SERVER.execute(msg_content_code)
-        dprint(1, "executed code.")
         content = {
             'execution_state': "busy",
         }
         send(iopub_stream, 'status', content, parent_header=msg['header'])
         #######################################################################
+        dprint(1, "simple_kernel Executing:", pformat(msg_content_code))
+        lang_server_response = LANG_SERVER.execute(msg_content_code)
+        dprint(1, "executed code.")
+
+        ## vvv TODO: what does this do?
         content = {
             'execution_count': EXECUTION_COUNT,
             'code': msg_content_code
@@ -299,6 +354,8 @@ def shell_handler(msg):
         send(iopub_stream, 'status', content, parent_header=msg['header'])
     elif msg['header']["msg_type"] == "history_request":
         dprint(1, "unhandled history request")
+    elif msg['header']["msg_type"] == "complete_request":
+        dprint(1, "unhandled tab complete request")
     else:
         dprint(1, "unknown msg_type:", msg['header']["msg_type"])
 
