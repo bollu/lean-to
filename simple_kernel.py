@@ -20,6 +20,10 @@
 # ipython console --KernelManager.kernel_cmd="['python', 'simple_kernel.py', '{connection_file}']"
 
 
+## Comm messages:  https://jupyter-client.readthedocs.io/en/stable/messaging.html
+# Kernel listens to comm  messages on shell cannel
+# Frontend listens / Kernel sends comm messages on IOPub channel
+
 
 # Widget handling as detailed by IHaskell folks:
 # https://github.com/gibiansky/IHaskell/blob/master/ihaskell-display/ihaskell-widgets/MsgSpec.md
@@ -202,6 +206,10 @@ class Colors:
     END = "\033[0m"
 
 
+global COMMS
+COMMS = {}
+
+
 class AsmLangException(Exception):
     def __init__(self, stdout:str, result:str):
         self.response = AsmLangResponse(stdout, result)
@@ -262,6 +270,25 @@ class AsmLangServer:
                     self.regfile[code[1]] = self.eval_expr(code[2]) + self.eval_expr(code[3])
                     r = {} # {"text/plain": "RESULT add"}
                     return AsmLangResponse(stdout=f"STDOUT: {self.regfile[code[1]]}\n", result=r)
+            elif code[0] = "button":
+                global COMMS
+                comm_id = str(uuid.uuid4())
+                # https://github.com/jupyter-widgets/ipywidgets/blob/master/packages/schema/jupyterwidgetmodels.v6.md#jupyterbutton
+                r = {
+                    'comm_id': comm_id,
+                    'target_name': 'jupyter.widget',
+                    'data': {
+                        '_model_name': 'ButtonModel',
+                        '_model_module': 'jupyter-js-widgets',
+                        '_model_module_version': '~2.1.0',
+                        '_view_module':'jupyter-js-widgets',
+                        '_view_module_version':'~2.1.0',
+                        '_view_name':'ButtonView',
+                        'description': 'click me, I am a cute button'
+                    }
+                }
+                COMMS[comm_id] = r
+                return AsmLangResponse(stdout="", result=r)
             elif len(code) == 1:
                 r = {"text/plain": f"{self.eval_expr(code[0])}",
                      "text/html": "<a href='https://pixel-druid.com'><i>i</i><b>tal</b><u>ic</u></a>"}
