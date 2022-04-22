@@ -1,7 +1,11 @@
 .PHONY: run
 
 # v WORKS
-run-console: 
+run-console:
+	jupyter console --kernel asm
+	
+
+run-console-old: 
 	jupyter console --KernelManager.kernel_cmd="['python3', './simple_kernel.py','{connection_file}']"
 
 # v BORKED [reasons unknown]

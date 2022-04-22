@@ -260,6 +260,12 @@ class AsmLangServer:
             if len(code) == 0:
                 ERROR_STR = f"{Colors.RED}ERROR:{Colors.END} unknown code |{code}|\n"
                 raise AsmLangException(stdout=ERROR_STR, result={})
+            if code[0] == "get":
+                    self.assert_instruction_length(code, ["get", "var"])
+                    var = code[1]
+                    val = self.regfile[var]
+                    r = {} # {"text/plain": "RESULT set"}
+                    return AsmLangResponse(stdout=f"STDOUT: {var} = {val}\n", result=r)
             if code[0] == "set":
                     self.assert_instruction_length(code, ["set", "var", "val"])
                     self.regfile[code[1]] = self.eval_expr(code[2])
@@ -270,7 +276,7 @@ class AsmLangServer:
                     self.regfile[code[1]] = self.eval_expr(code[2]) + self.eval_expr(code[3])
                     r = {} # {"text/plain": "RESULT add"}
                     return AsmLangResponse(stdout=f"STDOUT: {self.regfile[code[1]]}\n", result=r)
-            elif code[0] = "button":
+            elif code[0] == "button":
                 global COMMS
                 comm_id = str(uuid.uuid4())
                 # https://github.com/jupyter-widgets/ipywidgets/blob/master/packages/schema/jupyterwidgetmodels.v6.md#jupyterbutton
@@ -295,7 +301,7 @@ class AsmLangServer:
                 return AsmLangResponse(stdout="", result=r)
             else:
                 raise AsmLangException(stdout=f"{Colors.RED}ERROR:{Colors.END}" + \
-                                       "Unknown command: |{code[0]}|\n",
+                                       f"Unknown command: |{code[0]}|\n",
                                        result={})
         except AsmLangException as e:
            return e.response
