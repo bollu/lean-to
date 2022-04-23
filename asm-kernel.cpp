@@ -19,8 +19,8 @@ std::string uuid4() {
     // https://github.com/mariusbancila/stduuid/blob/master/include/uuid.h
     return "78d25e41-171d-494b-92f2-4fce84fb3524";
 }
-int main(int argc, char **argv) 
-{
+using ll = long long;
+int main(int argc, char **argv) {
     // TODO: need to parse argv for json file.
     assert(argc == 2  && "expected config JSON file path");
     std::stringstream config_buffer;
@@ -28,21 +28,22 @@ int main(int argc, char **argv)
         std::ifstream config_file(argv[1]);
         config_buffer << config_file.rdbuf();
     }
-    json j = json::parse(config_buffer.str());
+    json config = json::parse(config_buffer.str());
     std::cout << "Starting up C++ kernel...json:\n";
-    std::cout << j << "\n";
+    std::cout << config << "\n";
 
 
     using namespace std::chrono_literals;
-    const std::string connection = "tcp://127.0.0.1";
+    const std::string connection = 
+        config["transport"].get<std::string>() + "://" + config["ip"].get<std::string>();
     const std::string key = uuid4();//
     const std::string signature_scheme = "hmac-sha256";
     // const char *secure_key = key.c_str();
-    const std::string heartbeat_port = "8000"; // hb_port
-    const std::string iopub_port = "8000"; // hb_port
-    const std::string control_port = "8000"; // hb_port
-    const std::string stdin_port = "8000"; // hb_port
-    const std::string shell_port = "8000"; // hb_port
+    const std::string heartbeat_port = std::to_string(config["hb_port"].get<ll>());
+    const std::string iopub_port = std::to_string(config["iopub_port"].get<ll>());
+    const std::string control_port = std::to_string(config["control_port"].get<ll>());
+    const std::string stdin_port = std::to_string(config["stdin_port"].get<ll>());
+    const std::string shell_port = std::to_string(config["shell_port"].get<ll>());
 
     // https://github.com/kazuho/picohash/blob/master/picohash.h
     // auth = hmac.HMAC(
@@ -79,7 +80,7 @@ int main(int argc, char **argv)
     // ##########################################
     // # shell
     zmq::socket_t shell_socket{ctx, zmq::socket_type::router};
-    shell_socket.bind(connection + ":" + stdin_port);
+    shell_socket.bind(connection + ":" + shell_port);
 
     // prepare some static data for responses
     const std::string data{"World"};
