@@ -21,13 +21,12 @@ std::string uuid4() {
 }
 using ll = long long;
 
-enum SocketKind {
+enum PolledSocketKinds {
     HEARTBEAT,
-    IOPUB,
     CONTROL,
     STDIN,
     SHELL,
-    NSOCKETKIND
+    NPOLLEDSOCKETS
 };
 
 int main(int argc, char **argv) {
@@ -66,7 +65,7 @@ int main(int argc, char **argv) {
     void *ctx = zmq_ctx_new ();
     // zmq::context_t ctx{1};
 
-    void *sockets[NSOCKETKIND];
+    void *sockets[NPOLLEDSOCKETS];
     // ##########################################
     // # Heartbeat:
     sockets[HEARTBEAT] = zmq_socket(ctx, ZMQ_REP);
@@ -79,10 +78,10 @@ int main(int argc, char **argv) {
     // ##########################################
     // # IOPub/Sub
     // # also called SubSocketChannel in IPython sources
-    sockets[IOPUB] = zmq_socket(ctx, ZMQ_PUB);
+    void *iopub_socket = zmq_socket(ctx, ZMQ_PUB);
     {
         const std::string s = connection + ":" + iopub_port;
-        rc = zmq_bind(sockets[IOPUB], s.c_str());
+        rc = zmq_bind(iopub_socket, s.c_str());
         assert(rc == 0);
     }
     // iopub_stream = zmqstream.ZMQStream(iopub_socket)
@@ -120,17 +119,21 @@ int main(int argc, char **argv) {
 
     std::cout << "[KERNEL] starting polling loop\n";
     // http://api.zeromq.org/master:zmq-poll
-    zmq_pollitem_t items [5];
-    items[0].socket = sockets[HEARTBEAT];
-    items[0].events = ZMQ_POLLIN;
+    zmq_pollitem_t items [NPOLLEDSOCKETS];
+    for(int i = 0; i < NPOLLEDSOCKETS; ++i) {
+        items[i].socket = sockets[i];
+        items[i].events = ZMQ_POLLIN;
+    }
+
     for (;;) {
         // zmq::message_t request;
-        std::cout << "[KERNEL] polling heartbeat\n";
-        int rc = zmq_poll (items, 1, -1);
-        assert (items[0].revents != 0);
+        std::cout << "[KERNEL] polling\n";
+        int rc = zmq_poll (items, NPOLLEDSOCKETS, -1);
         assert(rc > 0); // did not timeout.
         assert(rc >= 0);
-        if (items[0].revents != 0) {
+
+        if (items[HEARTBEAT].revents != 0) {
+            std::cout << "[KERNEL] [HEARTBEAT] bouncing\n";
             zmq_msg_t msg;
             rc = zmq_msg_init (&msg);
             assert (rc == 0);
@@ -141,6 +144,43 @@ int main(int argc, char **argv) {
             assert(rc != -1);
             zmq_msg_close (&msg);
             
+        }
+        if (items[CONTROL].revents & ZMQ_POLLIN) {
+            std::cout << "[KERNEL] [CONTROL] has event [" << 
+                items[CONTROL].revents << "]\n";
+            assert(items[CONTROL].revents & ZMQ_POLLIN);
+            char buf[1025];
+            rc = zmq_recv(sockets[CONTROL],buf, 1024, 0);
+            buf[1024] = 0;
+            assert(rc != -1);
+            std::cout << "[KERNEL] [CONTROL] |" << buf << "|\n";
+
+            // zmq_msg_t msg;
+            // rc = zmq_msg_init (&msg);
+            // assert (rc == 0);
+            // std::cout << "\trecieving..." << std::flush;
+            // rc = zmq_msg_recv (&msg, sockets[CONTROL], 0);
+            // assert (rc != -1);
+            // std::cout << "done!\n";
+            // unsigned char *data = (unsigned char *)zmq_msg_data(&msg);
+            // int size = zmq_msg_size(&msg);
+            // std::cout << "[KERNEL] [CONTROL] size=" << size << "\n";
+            // zmq_msg_close (&msg);
+        }
+        if (items[SHELL].revents & ZMQ_POLLIN) {
+            std::cout << "[KERNEL] [SHELL] has event\n";
+
+            char buf[1025];
+            rc = zmq_recv(sockets[SHELL],buf, 1024, 0);
+            buf[1024] = 0;
+            assert(rc != -1);
+            std::cout << "[KERNEL] [SHELL] |" << buf << "|\n";
+        }
+        for(int i = 2; i < NPOLLEDSOCKETS; ++i) {
+            if (items[i].revents != 0) {
+                std::cout << "GOT MESSAGE ON [" << i << "]\n";
+            }
+            assert(items[i].revents == 0);
         }
 
         

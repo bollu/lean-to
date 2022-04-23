@@ -532,6 +532,7 @@ def control_handler(wire_msg):
         shutdown()
 
 def iopub_handler(msg):
+    raise RuntimeError("DIE IO PUB HANDLER")
     dprint(1, "iopub received:", msg)
 
 def stdin_handler(msg):
