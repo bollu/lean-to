@@ -1,3 +1,4 @@
+build/
 *.log
 # Swap
 [._]*.s[a-v][a-z]

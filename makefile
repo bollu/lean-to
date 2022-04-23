@@ -1,4 +1,10 @@
-.PHONY: run
+.PHONY: run build-cpp-kernel
+
+run-cpp-console: build-cpp-kernel
+	jupyter console --kernel asmcpp
+
+build-cpp-kernel:
+	make -C build/
 
 # v WORKS
 run-console:
@@ -19,5 +25,5 @@ run-notebook-old: install-kernel
 
 # v WORKS 
 install-kernel:
-	mkdir -p ${HOME}/.local/share/jupyter/kernels/asm
-	cp -r kernelspec/* ${HOME}/.local/share/jupyter/kernels/asm/
+	cp  -r kernelspec/* ${HOME}/.local/share/jupyter/kernels/
+

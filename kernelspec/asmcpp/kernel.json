@@ -1,0 +1,8 @@
+{
+ "argv": [
+  "asm-kernel-cpp",
+  "{connection_file}"
+ ],
+ "display_name": "Asm Kernel CPP (jupyter kernel)",
+ "language": "asmcpp"
+}
