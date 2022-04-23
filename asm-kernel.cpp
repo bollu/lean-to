@@ -1,9 +1,9 @@
+#include <zmq.h>
 #include <string>
 #include <chrono>
 #include <thread>
 #include <iostream>
-#include <zmq.h>
-#include <zmq.hpp>
+// #include <zmq.hpp>
 // #include "picohash.h"
 #include <iostream>
 #include <sstream>
@@ -45,55 +45,101 @@ int main(int argc, char **argv) {
     const std::string stdin_port = std::to_string(config["stdin_port"].get<ll>());
     const std::string shell_port = std::to_string(config["shell_port"].get<ll>());
 
+
     // https://github.com/kazuho/picohash/blob/master/picohash.h
     // auth = hmac.HMAC(
     //     secure_key,
     //     digestmod=signature_schemes[config["signature_scheme"]])
 
     // initialize the zmq ctx with a single IO thread
-    zmq::context_t ctx{1};
+    int rc = 0; // return code
+    void *ctx = zmq_ctx_new ();
+    // zmq::context_t ctx{1};
 
     // ##########################################
     // # Heartbeat:
-    zmq::socket_t heartbeat_socket{ctx, zmq::socket_type::rep};
-    heartbeat_socket.bind(connection + ":" + heartbeat_port); // we might need 127.0.0.1
+    void *heartbeat_socket = zmq_socket(ctx, ZMQ_REP);
+    {
+        const std::string s = connection + ":" + heartbeat_port;
+        rc = zmq_bind(heartbeat_socket, s.c_str());
+        assert(rc == 0);
+    }
 
     // ##########################################
     // # IOPub/Sub
     // # also called SubSocketChannel in IPython sources
-    zmq::socket_t iopub_socket{ctx, zmq::socket_type::pub};
-    iopub_socket.bind(connection + ":" + iopub_port);
+    void *iopub_socket = zmq_socket(ctx, ZMQ_PUB);
+    {
+        const std::string s = connection + ":" + iopub_port;
+        rc = zmq_bind(iopub_socket, s.c_str());
+        assert(rc == 0);
+    }
     // iopub_stream = zmqstream.ZMQStream(iopub_socket)
     // iopub_stream.on_recv(iopub_handler)
 
 
     // ##########################################
     // # Control:
-    zmq::socket_t control_socket{ctx, zmq::socket_type::router};
-    control_socket.bind(connection + ":" + control_port);
+    void *control_socket = zmq_socket(ctx, ZMQ_ROUTER);
+    {
+        const std::string s = connection + ":" + control_port;
+        rc = zmq_bind(control_socket, s.c_str());
+        assert(rc == 0);
+    }
+ 
 
     // ##########################################
     // # Stdin
-    zmq::socket_t stdin_socket{ctx, zmq::socket_type::router};
-    control_socket.bind(connection + ":" + stdin_port);
+    void *stdin_socket = zmq_socket(ctx, ZMQ_ROUTER);
+    {
+        const std::string s = connection + ":" + stdin_port;
+        rc = zmq_bind(stdin_socket, s.c_str());
+        assert(rc == 0);
+    }
 
     // ##########################################
     // # shell
-    zmq::socket_t shell_socket{ctx, zmq::socket_type::router};
-    shell_socket.bind(connection + ":" + shell_port);
+    void *shell_socket = zmq_socket(ctx, ZMQ_ROUTER);
+    {
+        const std::string s = connection + ":" + shell_port;
+        rc = zmq_bind(shell_socket, s.c_str());
+        assert(rc == 0);
+    }
 
-    // prepare some static data for responses
-    const std::string data{"World"};
 
+    std::cout << "[KERNEL] starting polling loop\n";
+    // http://api.zeromq.org/master:zmq-poll
+    zmq_pollitem_t items [5];
+    items[0].socket = heartbeat_socket;
+    items[0].events = ZMQ_POLLIN;
     for (;;) {
-        zmq::message_t request;
+        // zmq::message_t request;
+        std::cout << "[KERNEL] polling heartbeat\n";
+        int rc = zmq_poll (items, 1, -1);
+        assert (items[0].revents != 0);
+        assert(rc > 0); // did not timeout.
+        assert(rc >= 0);
+        if (items[0].revents != 0) {
+            zmq_msg_t msg;
+            rc = zmq_msg_init (&msg);
+            assert (rc == 0);
+            rc = zmq_recvmsg (heartbeat_socket, &msg, 0);
+            assert (rc != -1);
+            // Release message
+            rc = zmq_msg_send(&msg, heartbeat_socket, 0);
+            assert(rc != -1);
+            zmq_msg_close (&msg);
+            
+        }
+
         
         // receive a request from client
         // socket.recv(request, zmq::recv_flags::none);
-        std::cout << "Received " << request.to_string() << std::endl;
+        // std::cout << "Received " << request.to_string() << "\n";
 
         // heartbeat
-        zmq_device(ZMQ_FORWARDER, heartbeat_socket.handle(), heartbeat_socket.handle());
+        // zmq_device(ZMQ_FORWARDER, heartbeat_socket.handle(), heartbeat_socket.handle());
+        // std::cout << "Sent heartbeat.\n";
 
         // simulate work
         // std::this_thread::sleep_for(1s);
