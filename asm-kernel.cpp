@@ -13,6 +13,9 @@
 #include <openssl/hmac.h>
 #include "json.hpp"
 
+// ZMQ guide for C devs:
+// https://lqhl.me/resources/zguide-c.pdf
+
 using namespace nlohmann;
 
 std::string uuid4() {
@@ -20,6 +23,33 @@ std::string uuid4() {
     return "78d25e41-171d-494b-92f2-4fce84fb3524";
 }
 using ll = long long;
+
+
+const char DELIM []= "<IDS|MSG>";
+
+std::string deserialize_wire_msg(const unsigned char *msg, const int len) {
+// def deserialize_wire_msg(wire_msg):
+//     """split the routing prefix and message frames from a message on the wire"""
+//     delim_idx = wire_msg.index(DELIM)
+//     identities = wire_msg[:delim_idx]
+//     m_signature = wire_msg[delim_idx + 1]
+//     msg_frames = wire_msg[delim_idx + 2:]
+// 
+//     def decode(msg):
+//         return json.loads(msg.decode('ascii') if PYTHON3 else msg)
+// 
+//     m = {}
+//     m['header']        = decode(msg_frames[0])
+//     m['parent_header'] = decode(msg_frames[1])
+//     m['metadata']      = decode(msg_frames[2])
+//     m['content']       = decode(msg_frames[3])
+//     # bollu:only necessary for paranoia.
+//     check_sig = sign(msg_frames)
+//     if check_sig != m_signature:
+//         raise ValueError("Signatures do not match")
+// 
+//     return identities, m
+}
 
 enum PolledSocketKinds {
     HEARTBEAT,
@@ -170,11 +200,21 @@ int main(int argc, char **argv) {
         if (items[SHELL].revents & ZMQ_POLLIN) {
             std::cout << "[KERNEL] [SHELL] has event\n";
 
-            char buf[1025];
-            rc = zmq_recv(sockets[SHELL],buf, 1024, 0);
-            buf[1024] = 0;
-            assert(rc != -1);
-            std::cout << "[KERNEL] [SHELL] |" << buf << "|\n";
+            // http://api.zeromq.org/2-0:zmq-recv
+            int64_t more = 0;
+            do {
+                static const int BUFSZ = 1<<20;
+                char *buf = (char*) calloc((BUFSZ+1), sizeof(char));
+                rc = zmq_recv(sockets[SHELL],buf, BUFSZ, 0);
+                buf[BUFSZ] = 0;
+                assert(rc != -1);
+                std::cout << "[KERNEL] [SHELL] |" << buf << "|\n";
+                size_t ll_size = sizeof(int64_t);
+                rc = zmq_getsockopt(sockets[SHELL], ZMQ_RCVMORE, &more, &ll_size);
+                assert(rc == 0);
+                free(buf);
+            } while(more);
+
         }
         for(int i = 2; i < NPOLLEDSOCKETS; ++i) {
             if (items[i].revents != 0) {
