@@ -163,7 +163,7 @@ void send_shell_response(void *socket, GlobalState globals, const
     // This is important, since it might cause the string to be empty...
     std::stringstream signature;
     for(int i = 0; i < siglen; ++i) {
-        signature << std::hex << (0xFF & rawsig[i]);
+        signature << std::setw(2) << std::setfill('0') << std::hex << (0xFF & rawsig[i]);
     }
 
 
@@ -244,11 +244,12 @@ void shell_handler(void *iopub_socket, void *shell_socket,
     }
 
     else if (msg_type == "is_complete_request") {
+        assert(false && "unhandled is_complete_request");
         // ## Return if line is complete. We say yes if ends if semicolon.
         // # https://jupyter-client.readthedocs.io/en/stable/messaging.html#completion
-        content = {
-             'execution_state': "busy",
-        }
+        // content = {
+        //      'execution_state': "busy",
+        // }
         // send(iopub_stream, 'status', content, parent_header=msg['header'])
         // #######################################################################
         // is_complete_request_code = msg['content']['code'].strip()
@@ -275,7 +276,7 @@ void shell_handler(void *iopub_socket, void *shell_socket,
         // }
         // send(iopub_stream, 'status', content, parent_header=msg['header'])
         // #######################################################################
-    else {
+    } else {
         assert(false && "unknown message type");
     }
 };
