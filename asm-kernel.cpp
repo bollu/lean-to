@@ -72,7 +72,21 @@ struct GlobalState {
     std::string engine_id; // engine ID is some random UUID
 };
 
-void zmq_send_shell_response(void *sock, GlobalState globals, const
+int zmq_msg_send_str(void *s_, std::string s, int flags) {
+    int rc = 0;
+    zmq_msg_t msg;
+    rc = zmq_msg_init(&msg);
+    assert(rc == 0);
+    rc = zmq_msg_init_size(&msg, s.size()+1);
+    assert (rc == 0);
+    /* Fill in message content with 'AAAAAA' */
+    memcpy (zmq_msg_data(&msg), s.c_str(), s.size()+1);
+    rc = zmq_msg_send(&msg, s_, flags);
+    assert(rc != -1);
+    return rc;
+}
+
+void send_shell_response(void *socket, GlobalState globals, const
         ShellResponse &response) {
     json header;
     header["date"] = "TODO-MAKEUP-DATE";
@@ -92,13 +106,11 @@ void zmq_send_shell_response(void *sock, GlobalState globals, const
     // auth = hmac.HMAC(
     //     secure_key,
     //     digestmod=signature_schemes[config["signature_scheme"]])
-    // msg_lst = [
-    //     encode(header),
-    //     encode(parent_header),
-    //     encode(metadata),
-    //     encode(content),
-    // ]
+    // msg_lst = [ encode(header), encode(parent_header), encode(metadata), encode(content) ]
     // signature = sign(msg_lst)
+    assert(!response.parent_header.is_null());
+    assert(!response.metadata.is_null());
+    assert(!response.content.is_null());
     std::vector<std::string> msg_list = {
         header.dump(),
         response.parent_header.dump(),
@@ -116,18 +128,24 @@ void zmq_send_shell_response(void *sock, GlobalState globals, const
     signature[BUFSIZE] = 0;
 
 
-    // parts = [DELIM,
-    //          signature,
-    //          msg_lst[0],
-    //          msg_lst[1],
-    //          msg_lst[2],
-    //          msg_lst[3]]
-    // if identities:
-    //     parts = identities + parts
+    // msg_lst = [ encode(header), encode(parent_header), encode(metadata), encode(content) ]
+    // parts = [DELIM, signature, msg_lst[0], msg_lst[1], msg_lst[2], msg_lst[3]]
+    // if identities: parts = identities + parts
     // dprint(3, "send parts:", parts)
     // stream.send_multipart(parts)
     // stream.flush()
-    // ZMQ: send multipart.
+    // construct response.
+    std::vector<std::string> parts;
+    parts.insert(parts.end(), response.identities.begin(), response.identities.end());
+    parts.push_back(DELIM);
+    parts.push_back(std::string((const char *)signature));
+    parts.insert(parts.end(), msg_list.begin(), msg_list.end());
+    int rc = 0;
+    for(int i = 0; i < parts.size(); ++i) {
+        std::cout << "sent |" << parts[i] << "|\n"; 
+        rc = zmq_msg_send_str(socket, parts[i], i + 1 < parts.size() ? ZMQ_SNDMORE : 0);
+        assert(rc != -1);
+    }
 }
 
 // handle shell event by replying on iopub and shell sockets
@@ -150,6 +168,7 @@ void shell_handler(void *iopub_socket, void *shell_socket,
         {
             ShellResponse response;
             response.msg_type = "kernel_info_reply";
+            response.metadata = json::parse("{}");
             // TODO: is this mapping between event and response the same?
             response.identities = event.identities;
             response.parent_header = event.header;
@@ -184,7 +203,7 @@ void shell_handler(void *iopub_socket, void *shell_socket,
             //     "    },"
             //     "    'banner': ''"
             //     "}");
-            zmq_send_shell_response(shell_socket, global_state, response);
+            send_shell_response(shell_socket, global_state, response);
         }
         {
             ShellResponse response;
@@ -192,7 +211,8 @@ void shell_handler(void *iopub_socket, void *shell_socket,
             // TODO: is this mapping between event and response the same?
             response.parent_header = event.header;
             response.content["execution_state"] = "idle";
-            zmq_send_shell_response(iopub_socket, global_state, response);
+            response.metadata = json::parse("{}");
+            send_shell_response(iopub_socket, global_state, response);
         }
     }
     else if (msg_type == "execute_request") {
