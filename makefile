@@ -4,7 +4,8 @@ run-cpp-console: build-cpp-kernel
 	jupyter console --kernel asmcpp
 
 build-cpp-kernel:
-	make -C build/
+	mkdir -p build/
+	clang++ asm-kernel.cpp -o build/asm-kernel-cpp -std=c++17 -fsanitize=address -fsanitize=undefined -lzmq -lssl -lcrypto ${leanc --print-ldflags}
 
 # v WORKS
 run-console:

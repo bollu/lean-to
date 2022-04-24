@@ -8,13 +8,14 @@
 #include <iostream>
 #include <sstream>
 #include <fstream>
-#include "uuid.h"
+// #include "uuid.h"
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include "json.hpp"
 
 // ZMQ guide for C devs:
 // https://lqhl.me/resources/zguide-c.pdf
+
 
 using namespace nlohmann;
 

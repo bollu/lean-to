@@ -2,9 +2,9 @@ import Lake
 
 open Lake DSL
 
-package LeanREPL {
-  libName := "REPL"
-  binRoot := `REPL
-  libRoots := #[`REPL] 
-  supportInterpreter := true
+package REPL {
+  libName := "REPLLib"
+  binRoot := `REPLBin
+  libRoots := #[`REPLLib] 
+  -- supportInterpreter := true
 }

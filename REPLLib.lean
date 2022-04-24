@@ -21,6 +21,13 @@ def commandElabCtx : Context := {
   fileMap := { source := "", positions := #[0], lines := #[1] }
 }
 
+def buildImports (moduleNames : List String) : List Import :=
+  defaultModuleNames ++ moduleNames
+    |>.map fun s => { module := Name.mkSimple s }
+
+def cleanStack (imports : List Import) : IO (Stack Environment) := do
+  Stack.empty |>.push $ ← importModules imports {}
+
 def runCommandElabM_ (commandElabM : CommandElabM Unit) :
     IO Unit := do
   let k ← (commandElabM commandElabCtx).run
@@ -28,7 +35,11 @@ def runCommandElabM_ (commandElabM : CommandElabM Unit) :
 
 def runCommandElabM (state: State)  (commandElabM : CommandElabM (String × String × String)) :
   IO (String × String × String × State) := do
-  let ret ← (commandElabM commandElabCtx).run state |>.toIO'
+  let imports ← buildImports []
+  let fullCmd : CommandElabM (String × String × String) := do
+    setEnv (← cleanStack imports).peek!
+    commandElabM
+  let ret ← (fullCmd commandElabCtx).run state |>.toIO'
   match ret with 
   | Except.error err => ("", "", (← err.toMessageData.toString), state)
   | Except.ok ((val, stdout, stderr), state) => (val, stdout, stderr, state)
@@ -62,8 +73,6 @@ def command2ElabMC (cmd : String) : CommandElabM (String × String × String) :=
     --   totMsgs ++ "\n" ++ msg.toString
 
 
-def cleanStack (imports : List Import) : IO (Stack Environment) := do
-  Stack.empty |>.push $ ← importModules imports {}
 
 partial def loop (imports : List Import) (envs : Stack Environment) :
     CommandElabM Unit := do
@@ -100,25 +109,19 @@ partial def loop (imports : List Import) (envs : Stack Environment) :
     loop imports $ envs.push (← getEnv)
   else loop imports envs
 
-def buildImports (moduleNames : List String) : List Import :=
-  defaultModuleNames ++ moduleNames
-    |>.map fun s => { module := Name.mkSimple s }
 
 def main_old (args : List String) : IO Unit := do
   initSearchPath (← findSysroot?)
   let imports ← buildImports args
   runCommandElabM_ $ loop imports (← cleanStack imports)
 
-def main (args: List String): IO Unit := do
-  initSearchPath (← findSysroot?)
-  let imports ← buildImports args
-  IO.print "> "
-  let cmdIn ←  (← (← IO.getStdin).getLine)
-  let state := { env := ← mkEmptyEnvironment, maxRecDepth := defaultMaxRecDepth } 
-  let (val, out, err, state) ← runCommandElabM state (do 
-    setEnv (← cleanStack imports).peek!
-    command2ElabMC cmdIn)
-  IO.println $ "val: |" ++ val  ++ "|"
-  IO.println $ "out: |" ++ out  ++ "|"
-  IO.println $ "err: |" ++ err  ++ "|"
+@[export mk_init_state]
+def mk_init_state : IO State := do
+  let s : State := { env := ← mkEmptyEnvironment, maxRecDepth := defaultMaxRecDepth } 
+  return s
+
+@[export run_code]
+def runCode (state: State) (code: String): IO (String × (String × (String × State))) :=
+  runCommandElabM state (command2ElabMC code)
+
 
