@@ -18,6 +18,15 @@
 
 using namespace nlohmann;
 
+json json_empty_object() {
+    // https://github.com/nlohmann/json/issues/2046#issuecomment-868980645
+    return json(json::value_t::object);
+}
+
+json json_empty_list() {
+    return json(json::value_t::array);
+}
+
 std::string uuid4() {
     char v[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
     //3fb17ebc-bc38-4939-bc8b-74f2443281d4
@@ -82,19 +91,31 @@ struct ShellRequest {
     std::vector<std::string> identities;
 };
 
+// information to be sent back to jupyter via ZMQ
 struct JupyterResponse {
-    std::string msg_type;
-    json content;
-    json parent_header;
-    json metadata;
+    std::string msg_type; // string of message type
+    json content; // content in message.
+    json parent_header; // header of previous message we are replying to.
+    json metadata; // '''metadata''' as per jupyter protocol demands.
     // TODO: should this be a list? will this ever be a list?
-    std::vector<std::string> identities;
+    std::vector<std::string> identities; // routing information extracted from request.
+};
+
+// information that is sent back when a shell response is made.
+struct ShellExecutionResponse {
+    // eg. evaluating |IO.println "foo"| will have val as unit, stdout as "foo".
+    std::string out; // stdout.
+    std::string err; // stderr.
+    std::string val; // value of the execution. 
+    ShellExecutionResponse(std::string out, std::string err, std::string val) 
+        :out(out), err(err), val(val) {};
 };
 
 // unique state held across session
 struct GlobalState {
     std::string key; // signing key is some random UUID
     std::string engine_id; // engine ID is some random UUID
+    int shell_execution_count = 0;
 };
 
 // custom free function to free memory from zmq
@@ -119,8 +140,8 @@ int zmq_msg_send_str(void *s_, std::string s, int flags) {
 }
 
 // send response structure the way Jupyter expects them.
-void send_jupyter_response(void *socket, GlobalState globals, const
-        JupyterResponse &response) {
+void send_jupyter_response(void *socket, const GlobalState &globals, 
+        const JupyterResponse &response) {
     json header;
     header["date"] = datetime_now_isoformat();
     header["msg_id"] = uuid4(); // TODO:ouch!
@@ -129,7 +150,8 @@ void send_jupyter_response(void *socket, GlobalState globals, const
     header["msg_type"] = response.msg_type;
     header["version"] = "5.0";
 
-    std::cout << "[KERNEL] [RESPONSE]" << "hmac key: |" << globals.key << "|\n";
+    std::cout << "[KERNEL] [RESPONSE] ==" << "msg: |" << response.msg_type << "| " << 
+        "hmac key: |" << globals.key << "|==\n";
     HMAC_CTX *h = HMAC_CTX_new();
     int status = HMAC_Init(h, globals.key.c_str(), globals.key.size(), EVP_sha256());
     assert(status == 1);
@@ -195,8 +217,9 @@ void send_jupyter_response(void *socket, GlobalState globals, const
 }
 
 // handle shell request by replying on iopub and shell sockets
+// NOTE: we mutate execution counts stored in global_state
 void shell_handler(void *iopub_socket, void *shell_socket, 
-    GlobalState global_state, ShellRequest request) {
+    GlobalState &global_state, const ShellRequest request) {
     std::cout << "[SHELL HANDLER] identities: ";
     for(int i = 0; i < request.identities.size(); ++i) {
         std::cout << "|" << request.identities[i] << "|";
@@ -248,7 +271,6 @@ void shell_handler(void *iopub_socket, void *shell_socket,
     else if (msg_type == "history_request") {
         std::cout << "[shlll handler] unhandled history request\n";
     }
-
     else if (msg_type == "is_complete_request") {
         // ## Return if line is complete. We say yes if ends if semicolon.
         // # https://jupyter-client.readthedocs.io/en/stable/messaging.html#completion
@@ -285,6 +307,7 @@ void shell_handler(void *iopub_socket, void *shell_socket,
             // send(shell_stream, 'is_complete_reply', content, metadata=metadata,
             //     parent_header=msg['header'], identities=identities)
             response.msg_type = "is_complete_reply";
+            response.metadata = json_empty_object();
             response.parent_header = request.header;
             response.identities = request.identities;
             send_jupyter_response(shell_socket, global_state, response);
@@ -303,7 +326,129 @@ void shell_handler(void *iopub_socket, void *shell_socket,
             response.msg_type = "status";
             send_jupyter_response(iopub_socket, global_state, response);
         }
-    } else {
+    } 
+    else if (msg_type == "execute_request") {
+        {
+            // content = {
+            //     'execution_state': "busy",
+            // }
+            // send(iopub_stream, 'status', content, parent_header=msg['header'])
+            // #######################################################################
+            JupyterResponse response;
+            response.content["execution_state"] = "busy";
+            response.metadata = json::parse("{}");
+            response.parent_header = request.header;
+            response.msg_type = "status";
+            send_jupyter_response(iopub_socket, global_state, response);
+        }
+
+        const std::string code_to_execute = request.content["code"];
+        // TODO: hook into lean here!
+        const ShellExecutionResponse lang_server_response("stdout", "stderr", "val");
+
+        {
+            // This tells the notebook what is being executed
+            // ## https://jupyter-client.readthedocs.io/en/stable/messaging.html#code-inputs
+            JupyterResponse response;
+            // code_to_execute = msg['content']['code']
+            // dprint(1, "simple_kernel Executing:", pformat(code_to_execute))
+            // lang_server_response = LANG_SERVER.execute(code_to_execute)
+            // dprint(1, "executed code.")
+
+            // content = {
+            //     'execution_count': EXECUTION_COUNT,
+            //     'code': code_to_execute
+            // }
+            // send(iopub_stream, 'execute_input', content, parent_header=msg['header'])
+            // #######################################################################
+            response.content["execution_count"] = global_state.shell_execution_count;
+            response.content["code"] = code_to_execute;
+            response.metadata = json::parse("{}");
+            response.parent_header = request.header;
+            response.msg_type = "execute_input";
+            send_jupyter_response(iopub_socket, global_state, response);
+        }
+        {
+            JupyterResponse response;
+            // content = {
+            //     'name': "stdout",
+            //     'text': lang_server_response.stdout
+            // }
+            // send(iopub_stream, 'stream', content, parent_header=msg['header'])
+            response.content["name"] = "stdout";
+            response.content["text"] = lang_server_response.out;
+            response.msg_type = "stream";
+            response.parent_header = request.header;
+            response.metadata = json_empty_object();
+            send_jupyter_response(iopub_socket, global_state, response);
+        }
+        {
+            JupyterResponse response;
+            // content = {
+            //     'execution_count': EXECUTION_COUNT,
+            //     'data': lang_server_response.result,
+            //     'metadata': {}
+            // }
+            // send(iopub_stream, 'execute_result', content, parent_header=msg['header'])
+            response.content["execution_count"] = global_state.shell_execution_count;
+            response.content["data"] = lang_server_response.val;
+            response.content["metadata"] = json_empty_object();
+            response.parent_header = request.header;
+            response.msg_type = "execute_result";
+            response.metadata = json_empty_object();
+            response.parent_header = request.header;
+            send_jupyter_response(iopub_socket, global_state, response);
+
+        }
+        {
+            // content = {
+            //     'execution_state': "idle",
+            // }
+            // send(iopub_stream, 'status', content, parent_header=msg['header'])
+            //
+            JupyterResponse response;
+            response.content["execution_state"] = "idle";
+            response.metadata = json_empty_object();
+            response.parent_header = request.header;
+            response.msg_type = "status";
+            send_jupyter_response(iopub_socket, global_state, response);
+        }
+        {
+
+            JupyterResponse response;
+            // metadata = {
+            //     "dependencies_met": True,
+            //     "engine": ENGINE_ID,
+            //     "status": "ok",
+            //     "started": datetime.datetime.now().isoformat(),
+            // }
+            response.metadata["dependencies_met"] = true;
+            response.metadata["engine"] = global_state.engine_id;
+            response.metadata["status"] = "ok";
+            response.metadata["started"] = datetime_now_isoformat();
+            // content = {
+            //     "status": "ok",
+            //     "execution_count": EXECUTION_COUNT,
+            //     "user_variables": {},
+            //     "payload": [],
+            //     "user_expressions": {},
+            // }
+            // send(shell_stream, 'execute_reply', content, metadata=metadata,
+            //     parent_header=msg['header'], identities=identities)
+            // ##################################################################
+            response.content["status"] = "ok";
+            response.content["execution_count"] = global_state.shell_execution_count;
+            response.content["user_variable"] = json_empty_object();
+            response.content["payload"] = json_empty_list();
+            response.content["user_expressions"] = json_empty_object();
+            response.msg_type = "execute_reply";
+            response.identities = request.identities;
+            response.parent_header = request.header;
+            send_jupyter_response(shell_socket, global_state, response);
+        }
+
+    }
+    else {
         assert(false && "unknown message type");
     }
 };
