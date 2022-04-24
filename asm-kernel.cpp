@@ -122,10 +122,16 @@ void send_shell_response(void *socket, GlobalState globals, const
         HMAC_Update(h, (const unsigned char *) m.c_str(), m.size());
     }
 
-    unsigned int BUFSIZE = 4096;
-    unsigned char signature[BUFSIZE+1];
-    HMAC_Final(h, signature, &BUFSIZE);
-    signature[BUFSIZE] = 0;
+    unsigned char rawsig[1024];
+    unsigned int siglen;
+    HMAC_Final(h, rawsig, &siglen);
+    assert(siglen < 512);
+    rawsig[siglen] = 0;
+
+    std::stringstream signature;
+    for(int i = 0; i < siglen; ++i) {
+        signature << std::hex << (0xFF & rawsig[i]);
+    }
 
 
     // msg_lst = [ encode(header), encode(parent_header), encode(metadata), encode(content) ]
@@ -138,11 +144,11 @@ void send_shell_response(void *socket, GlobalState globals, const
     std::vector<std::string> parts;
     parts.insert(parts.end(), response.identities.begin(), response.identities.end());
     parts.push_back(DELIM);
-    parts.push_back(std::string((const char *)signature));
+    parts.push_back(signature.str());
     parts.insert(parts.end(), msg_list.begin(), msg_list.end());
     int rc = 0;
     for(int i = 0; i < parts.size(); ++i) {
-        std::cout << "sent |" << parts[i] << "|\n"; 
+        std::cout << "sent |[" << i << "]" << parts[i] << "|\n"; 
         rc = zmq_msg_send_str(socket, parts[i], i + 1 < parts.size() ? ZMQ_SNDMORE : 0);
         assert(rc != -1);
     }
