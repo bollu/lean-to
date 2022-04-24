@@ -19,9 +19,28 @@
 using namespace nlohmann;
 
 std::string uuid4() {
-    // https://github.com/mariusbancila/stduuid/blob/master/include/uuid.h
-    return "78d25e41-171d-494b-92f2-4fce84fb3524";
+    char v[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+    //3fb17ebc-bc38-4939-bc8b-74f2443281d4
+    //8 dash 4 dash 4 dash 4 dash 12
+    static char buf[37] = {0};
+
+    //gen random for all spaces because lazy
+    for(int i = 0; i < 36; ++i) {
+        buf[i] = v[rand()%16];
+    }
+
+    //put dashes in place
+    buf[8] = '-';
+    buf[13] = '-';
+    buf[18] = '-';
+    buf[23] = '-';
+
+    //needs end byte
+    buf[36] = '\0';
+    return std::string(buf);
 }
+
+
 using ll = long long;
 
 
@@ -72,6 +91,11 @@ struct GlobalState {
     std::string engine_id; // engine ID is some random UUID
 };
 
+void my_free (void *data, void *hint) {
+    free (data);
+}
+
+
 int zmq_msg_send_str(void *s_, std::string s, int flags) {
     int rc = 0;
     zmq_msg_t msg;
@@ -80,7 +104,8 @@ int zmq_msg_send_str(void *s_, std::string s, int flags) {
     rc = zmq_msg_init_size(&msg, s.size()+1);
     assert (rc == 0);
     /* Fill in message content with 'AAAAAA' */
-    memcpy (zmq_msg_data(&msg), s.c_str(), s.size()+1);
+    const char *data = strdup(s.c_str());
+    zmq_msg_init_data(&msg, (void*)data, strlen(data), my_free, NULL);
     rc = zmq_msg_send(&msg, s_, flags);
     assert(rc != -1);
     return rc;
@@ -89,15 +114,16 @@ int zmq_msg_send_str(void *s_, std::string s, int flags) {
 void send_shell_response(void *socket, GlobalState globals, const
         ShellResponse &response) {
     json header;
-    header["date"] = "TODO-MAKEUP-DATE";
+    header["date"] = "2022-04-24T02:20:01.512817Z"; // TODO
     header["msg_id"] = uuid4(); // TODO:ouch!
     header["username"] = "kernel"; 
     header["session"] = globals.engine_id;
     header["msg_type"] = response.msg_type;
-    header["version"] = 5.0;
+    header["version"] = "5.0";
 
     HMAC_CTX *h = HMAC_CTX_new();
-    HMAC_Init(h, globals.key.c_str(), globals.key.size(), EVP_sha256());
+    int status = HMAC_Init(h, globals.key.c_str(), globals.key.size(), EVP_sha256());
+    assert(status == 1);
 
     // def sign(msg_lst):
     //   h = auth.copy()l for m in msg_lst: h.update(m)
@@ -119,12 +145,14 @@ void send_shell_response(void *socket, GlobalState globals, const
     };
 
     for(std::string &m : msg_list) {
-        HMAC_Update(h, (const unsigned char *) m.c_str(), m.size());
+        status = HMAC_Update(h, (const unsigned char *) m.c_str(), m.size());
+        assert(status == 1);
     }
 
     unsigned char rawsig[1024];
     unsigned int siglen;
-    HMAC_Final(h, rawsig, &siglen);
+    status = HMAC_Final(h, rawsig, &siglen);
+    assert(status == 1);
     assert(siglen < 512);
     rawsig[siglen] = 0;
 
@@ -149,7 +177,8 @@ void send_shell_response(void *socket, GlobalState globals, const
     int rc = 0;
     for(int i = 0; i < parts.size(); ++i) {
         std::cout << "sent |[" << i << "]" << parts[i] << "|\n"; 
-        rc = zmq_msg_send_str(socket, parts[i], i + 1 < parts.size() ? ZMQ_SNDMORE : 0);
+        const int flag = i == parts.size() - 1 ? 0 : ZMQ_SNDMORE;
+        rc = zmq_msg_send_str(socket, parts[i], flag);
         assert(rc != -1);
     }
 }
@@ -174,13 +203,14 @@ void shell_handler(void *iopub_socket, void *shell_socket,
         {
             ShellResponse response;
             response.msg_type = "kernel_info_reply";
-            response.metadata = json::parse("{}");
             // TODO: is this mapping between event and response the same?
             response.identities = event.identities;
             response.parent_header = event.header;
             response.content["protocol_version"] = "5.0";
             response.content["ipython_version"] = {1, 1, 0, ""};
+            response.content["language_version"] = {0, 0, 1};
             response.content["language"] = "simple_kernel";
+            response.content["implementation"] = "simple_kernel";
             response.content["implementation_version"] = "1.1";
             response.content["language_info"]["name"] = "simple_kernel";
             response.content["language_info"]["version"] = "1.0";
@@ -190,25 +220,8 @@ void shell_handler(void *iopub_socket, void *shell_socket,
             response.content["language_info"]["codemirror_mode"] = "";
             response.content["language_info"]["nbconvert_exporter"] = "";
             response.content["banner"] = "";
+            response.metadata = json::parse("{}");
             std::cout << "response.content: |" << response.content << "|\n";
-            // = json::parse("{"
-            //     "    'protocol_version': '5.0',"
-            //     "    'ipython_version': [1, 1, 0, ''],"
-            //     "    'language_version': [0, 0, 1],"
-            //     "    'language': 'simple_kernel',"
-            //     "    'implementation': 'simple_kernel',"
-            //     "    'implementation_version': '1.1',"
-            //     "    'language_info': {"
-            //     "        'name': 'simple_kernel',"
-            //     "        'version': '1.0',"
-            //     "        'mimetype': '',"
-            //     "        'file_extension': '.py',"
-            //     "        'pygments_lexer': '',"
-            //     "        'codemirror_mode': '',"
-            //     "        'nbconvert_exporter': '',"
-            //     "    },"
-            //     "    'banner': ''"
-            //     "}");
             send_shell_response(shell_socket, global_state, response);
         }
         {
@@ -220,9 +233,8 @@ void shell_handler(void *iopub_socket, void *shell_socket,
             response.metadata = json::parse("{}");
             send_shell_response(iopub_socket, global_state, response);
         }
-    }
-    else if (msg_type == "execute_request") {
-    } else {
+    } 
+    else {
         assert(false && "unknown message type");
     }
 };
@@ -244,6 +256,7 @@ std::string zmq_msg_recv_str(void *s_) {
 }
 
 int main(int argc, char **argv) {
+    srand(0);
     // TODO: need to parse argv for json file.
     assert(argc == 2  && "expected config JSON file path");
     std::stringstream config_buffer;
