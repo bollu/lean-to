@@ -66,22 +66,56 @@ struct ShellResponse {
     std::vector<std::string> identities;
 };
 
-void zmq_send_shell_response(void *sock, const ShellResponse &response) {
+// unique state held across session
+struct GlobalState {
+    std::string key; // signing key is some random UUID
+    std::string engine_id; // engine ID is some random UUID
+};
+
+void zmq_send_shell_response(void *sock, GlobalState globals, const
+        ShellResponse &response) {
+    json header;
+    header["date"] = "TODO-MAKEUP-DATE";
+    header["msg_id"] = uuid4(); // TODO:ouch!
+    header["username"] = "kernel"; 
+    header["session"] = globals.engine_id;
+    header["msg_type"] = response.msg_type;
+    header["version"] = 5.0;
+
+    HMAC_CTX *h = HMAC_CTX_new();
+    HMAC_Init(h, globals.key.c_str(), globals.key.size(), EVP_sha256());
+
+    // def sign(msg_lst):
+    //   h = auth.copy()l for m in msg_lst: h.update(m)
+    //   return str_to_bytes(h.hexdigest())
+    //   ----------------------
     // auth = hmac.HMAC(
     //     secure_key,
     //     digestmod=signature_schemes[config["signature_scheme"]])
-    // def sign(msg_lst):
-    // h = auth.copy()
-    // for m in msg_lst:
-    //     h.update(m)
-    // return str_to_bytes(h.hexdigest())
     // msg_lst = [
     //     encode(header),
     //     encode(parent_header),
     //     encode(metadata),
     //     encode(content),
     // ]
-    //signature = sign(msg_lst)
+    // signature = sign(msg_lst)
+    std::vector<std::string> msg_list = {
+        header.dump(),
+        response.parent_header.dump(),
+        response.metadata.dump(),
+        response.content.dump()
+    };
+
+    for(std::string &m : msg_list) {
+        HMAC_Update(h, (const unsigned char *) m.c_str(), m.size());
+    }
+
+    unsigned int BUFSIZE = 4096;
+    unsigned char signature[BUFSIZE+1];
+    HMAC_Final(h, signature, &BUFSIZE);
+    signature[BUFSIZE] = 0;
+
+
     // parts = [DELIM,
     //          signature,
     //          msg_lst[0],
@@ -93,10 +127,12 @@ void zmq_send_shell_response(void *sock, const ShellResponse &response) {
     // dprint(3, "send parts:", parts)
     // stream.send_multipart(parts)
     // stream.flush()
+    // ZMQ: send multipart.
 }
 
 // handle shell event by replying on iopub and shell sockets
-void shell_handler(void *iopub_socket, void *shell_socket, ShellEvent event) {
+void shell_handler(void *iopub_socket, void *shell_socket, 
+    GlobalState global_state, ShellEvent event) {
     std::cout << "[SHELL HANDLER] identities: ";
     for(int i = 0; i < event.identities.size(); ++i) {
         std::cout << "|" << event.identities[i] << "|";
@@ -117,41 +153,47 @@ void shell_handler(void *iopub_socket, void *shell_socket, ShellEvent event) {
             // TODO: is this mapping between event and response the same?
             response.identities = event.identities;
             response.parent_header = event.header;
-            response.content = json::parse("{"
-                "    'protocol_version': '5.0',"
-                "    'ipython_version': [1, 1, 0, ''],"
-                "    'language_version': [0, 0, 1],"
-                "    'language': 'simple_kernel',"
-                "    'implementation': 'simple_kernel',"
-                "    'implementation_version': '1.1',"
-                "    'language_info': {"
-                "        'name': 'simple_kernel',"
-                "        'version': '1.0',"
-                "        'mimetype': '',"
-                "        'file_extension': '.py',"
-                "        'pygments_lexer': '',"
-                "        'codemirror_mode': '',"
-                "        'nbconvert_exporter': '',"
-                "    },"
-                "    'banner': ''"
-                "}");
-            zmq_send_shell_response(shell_socket, response);
+            response.content["protocol_version"] = "5.0";
+            response.content["ipython_version"] = {1, 1, 0, ""};
+            response.content["language"] = "simple_kernel";
+            response.content["implementation_version"] = "1.1";
+            response.content["language_info"]["name"] = "simple_kernel";
+            response.content["language_info"]["version"] = "1.0";
+            response.content["language_info"]["mimetype"] = "";
+            response.content["language_info"]["file_extension"] = ".py";
+            response.content["language_info"]["pygments_lexer"] = "";
+            response.content["language_info"]["codemirror_mode"] = "";
+            response.content["language_info"]["nbconvert_exporter"] = "";
+            response.content["banner"] = "";
+            std::cout << "response.content: |" << response.content << "|\n";
+            // = json::parse("{"
+            //     "    'protocol_version': '5.0',"
+            //     "    'ipython_version': [1, 1, 0, ''],"
+            //     "    'language_version': [0, 0, 1],"
+            //     "    'language': 'simple_kernel',"
+            //     "    'implementation': 'simple_kernel',"
+            //     "    'implementation_version': '1.1',"
+            //     "    'language_info': {"
+            //     "        'name': 'simple_kernel',"
+            //     "        'version': '1.0',"
+            //     "        'mimetype': '',"
+            //     "        'file_extension': '.py',"
+            //     "        'pygments_lexer': '',"
+            //     "        'codemirror_mode': '',"
+            //     "        'nbconvert_exporter': '',"
+            //     "    },"
+            //     "    'banner': ''"
+            //     "}");
+            zmq_send_shell_response(shell_socket, global_state, response);
         }
         {
             ShellResponse response;
             response.msg_type = "status";
             // TODO: is this mapping between event and response the same?
             response.parent_header = event.header;
-            response.content = json::parse("{"
-                "    'execution_state': 'idle'"
-                "}");
-            zmq_send_shell_response(iopub_socket, response);
+            response.content["execution_state"] = "idle";
+            zmq_send_shell_response(iopub_socket, global_state, response);
         }
-
-
-
-
-
     }
     else if (msg_type == "execute_request") {
     } else {
@@ -191,14 +233,17 @@ int main(int argc, char **argv) {
     using namespace std::chrono_literals;
     const std::string connection = 
         config["transport"].get<std::string>() + "://" + config["ip"].get<std::string>();
-    const std::string key = uuid4();//
-    const std::string signature_scheme = "hmac-sha256";
-    // const char *secure_key = key.c_str();
     const std::string heartbeat_port = std::to_string(config["hb_port"].get<ll>());
     const std::string iopub_port = std::to_string(config["iopub_port"].get<ll>());
     const std::string control_port = std::to_string(config["control_port"].get<ll>());
     const std::string stdin_port = std::to_string(config["stdin_port"].get<ll>());
     const std::string shell_port = std::to_string(config["shell_port"].get<ll>());
+    const std::string signature_scheme = config["signature_scheme"].get<std::string>();
+    assert(signature_scheme == "hmac-sha256");
+
+    GlobalState global_state;
+    global_state.key = config["key"].get<std::string>();
+    global_state.engine_id = uuid4();
 
 
     // https://github.com/kazuho/picohash/blob/master/picohash.h
@@ -345,7 +390,7 @@ int main(int argc, char **argv) {
             for(int i = 0; i < delim_index; ++i) {
                 event.identities.push_back(messages[i]);
             }
-            shell_handler(iopub_socket, sockets[SHELL], event);
+            shell_handler(iopub_socket, sockets[SHELL], global_state, event);
         }
 
 
