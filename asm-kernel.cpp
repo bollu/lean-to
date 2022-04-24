@@ -55,7 +55,9 @@ struct ShellEvent {
     json metadata;
     json content;
 };
-void shell_handler(ShellEvent event) {
+
+// handle shell event by replying on iopub and shell sockets
+void shell_handler(void *iopub_socket, void *shell_socket, ShellEvent event) {
     std::cout << "header: |" << event.header << "|\n";
     std::cout << "parent_header: |" << event.parent_header << "|\n";
     std::cout << "metadata: |" << event.metadata << "|\n";
@@ -241,7 +243,7 @@ int main(int argc, char **argv) {
             event.parent_header = json::parse(messages[delim_index + 2 + 1]);
             event.metadata = json::parse(messages[delim_index + 2 + 2]);
             event.content = json::parse(messages[delim_index + 2 + 3]);
-            shell_handler(event);
+            shell_handler(iopub_socket, sockets[SHELL], event);
         }
 
 
