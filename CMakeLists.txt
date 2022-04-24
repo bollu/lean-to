@@ -18,6 +18,12 @@ target_include_directories(asm-kernel-cpp  PUBLIC ".")
 
 # link_directories(${CMAKE_SOURCE_DIR}/sdl/lib/x64/)
 
+add_compile_options(-fsanitize=address)
+add_compile_options(-fsanitize=undefined)
+add_link_options(-fsanitize=address)
+add_link_options(-fsanitize=undefined)
+
+
 target_link_libraries(asm-kernel-cpp zmq)
 target_link_libraries(asm-kernel-cpp ssl)
 target_link_libraries(asm-kernel-cpp crypto)

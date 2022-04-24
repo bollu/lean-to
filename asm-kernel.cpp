@@ -159,6 +159,8 @@ void send_shell_response(void *socket, GlobalState globals, const
     assert(siglen < 512);
     rawsig[siglen] = 0;
 
+    // TODO: think what happens if rawsig actually has zeroes in the middle.
+    // This is important, since it might cause the string to be empty...
     std::stringstream signature;
     for(int i = 0; i < siglen; ++i) {
         signature << std::hex << (0xFF & rawsig[i]);
