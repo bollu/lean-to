@@ -1,11 +1,15 @@
 .PHONY: run build-cpp-kernel
+LEANLDFLAGS=$(shell leanc --print-ldflags)
 
 run-cpp-console: build-cpp-kernel
 	jupyter console --kernel asmcpp
 
 build-cpp-kernel:
-	mkdir -p build/
-	clang++ asm-kernel.cpp -o build/asm-kernel-cpp -std=c++17 -fsanitize=address -fsanitize=undefined -lzmq -lssl -lcrypto ${leanc --print-ldflags}
+	mkdir -p build
+	# bear to generate compile_commands.json
+	bear -- clang++ asm-kernel.cpp build/ir/REPLLib.c -o build/asm-kernel-cpp  -std=c++17 \
+		-fsanitize=address -fsanitize=undefined -lzmq -lssl -lcrypto \
+		$(LEANLDFLAGS)
 
 # v WORKS
 run-console:
