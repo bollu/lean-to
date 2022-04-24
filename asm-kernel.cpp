@@ -216,30 +216,10 @@ int main(int argc, char **argv) {
             int64_t more = 0;
             do {
                 std::string s = zmq_msg_recv_str(sockets[SHELL]);
-                // static const int BUFSZ = 1<<20;
-                // char *buf = (char*) calloc((BUFSZ+1), sizeof(char));
-                // zmq_msg_t msg;
-                // zmq_msg_init(&msg);
-                // rc = zmq_msg_recv(&msg, sockets[SHELL], 0);
-                // assert(rc != -1);
-                // int size = zmq_msg_size(&msg);
-                // char *s = (char *)calloc(size + 1, sizeof(unsigned char));
-                // memcpy(s, zmq_msg_data(&msg), size * sizeof(unsigned char));
-                // s[size] = 0;
-                // messages.push_back(std::string(s));
-                // free(s);
                 messages.push_back(s);
                 size_t ll_size = sizeof(int64_t);
                 rc = zmq_getsockopt(sockets[SHELL], ZMQ_RCVMORE, &more, &ll_size);
                 assert(rc == 0);
-                // rc = zmq_recv(sockets[SHELL],buf, BUFSZ, 0);
-                // buf[BUFSZ] = 0;
-                // assert(rc != -1);
-                // std::cout << "[KERNEL] [SHELL] |" << buf << "|\n";
-                // size_t ll_size = sizeof(int64_t);
-                // rc = zmq_getsockopt(sockets[SHELL], ZMQ_RCVMORE, &more, &ll_size);
-                // assert(rc == 0);
-                // free(buf);
             } while(more);
 
             int delim_index = -1; // index of delimiter
