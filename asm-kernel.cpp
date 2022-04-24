@@ -40,6 +40,11 @@ std::string uuid4() {
     return std::string(buf);
 }
 
+// TODO: actually learn how to create a datetime.
+std::string datetime_now_isoformat() {
+    return "2022-04-24T02:20:01.512817Z"; 
+}
+
 
 using ll = long long;
 
@@ -68,8 +73,8 @@ const char *polled_socket_kind_to_str(PolledSocketKind k) {
     assert(false && "unreachable");
 }
 
-// information a shell event possess.
-struct ShellEvent {
+// information a shell request possess.
+struct ShellRequest {
     json header;
     json parent_header;
     json metadata;
@@ -117,7 +122,7 @@ int zmq_msg_send_str(void *s_, std::string s, int flags) {
 void send_jupyter_response(void *socket, GlobalState globals, const
         JupyterResponse &response) {
     json header;
-    header["date"] = "2022-04-24T02:20:01.512817Z"; // TODO
+    header["date"] = datetime_now_isoformat();
     header["msg_id"] = uuid4(); // TODO:ouch!
     header["username"] = "kernel"; 
     header["session"] = globals.engine_id;
@@ -189,29 +194,29 @@ void send_jupyter_response(void *socket, GlobalState globals, const
     }
 }
 
-// handle shell event by replying on iopub and shell sockets
+// handle shell request by replying on iopub and shell sockets
 void shell_handler(void *iopub_socket, void *shell_socket, 
-    GlobalState global_state, ShellEvent event) {
+    GlobalState global_state, ShellRequest request) {
     std::cout << "[SHELL HANDLER] identities: ";
-    for(int i = 0; i < event.identities.size(); ++i) {
-        std::cout << "|" << event.identities[i] << "|";
+    for(int i = 0; i < request.identities.size(); ++i) {
+        std::cout << "|" << request.identities[i] << "|";
     }
 
     std::cout << "\n";
-    std::cout << "[SHELL HANDLER] header: |" << event.header << "|\n";
-    std::cout << "[SHELL HANDLER] parent_header: |" << event.parent_header << "|\n";
-    std::cout << "[SHELL HANDLER] metadata: |" << event.metadata << "|\n";
-    std::cout << "[SHELL HANDLER] content: |" << event.content << "|\n";
+    std::cout << "[SHELL HANDLER] header: |" << request.header << "|\n";
+    std::cout << "[SHELL HANDLER] parent_header: |" << request.parent_header << "|\n";
+    std::cout << "[SHELL HANDLER] metadata: |" << request.metadata << "|\n";
+    std::cout << "[SHELL HANDLER] content: |" << request.content << "|\n";
 
-    const std::string msg_type = event.header["msg_type"].get<std::string>();
+    const std::string msg_type = request.header["msg_type"].get<std::string>();
     std::cout << "[SHLLL HANDLER] message type: |" << msg_type << "|\n";
     if (msg_type == "kernel_info_request") {
         {
             JupyterResponse response;
             response.msg_type = "kernel_info_reply";
-            // TODO: is this mapping between event and response the same?
-            response.identities = event.identities;
-            response.parent_header = event.header;
+            // TODO: is this mapping between request and response the same?
+            response.identities = request.identities;
+            response.parent_header = request.header;
             response.content["protocol_version"] = "5.0";
             response.content["ipython_version"] = {1, 1, 0, ""};
             response.content["language_version"] = {0, 0, 1};
@@ -233,19 +238,18 @@ void shell_handler(void *iopub_socket, void *shell_socket,
         {
             JupyterResponse response;
             response.msg_type = "status";
-            // TODO: is this mapping between event and response the same?
-            response.parent_header = event.header;
+            // TODO: is this mapping between request and response the same?
+            response.parent_header = request.header;
             response.content["execution_state"] = "idle";
             response.metadata = json::parse("{}");
             send_jupyter_response(iopub_socket, global_state, response);
         }
     } 
     else if (msg_type == "history_request") {
-        std::cout << "[SHLLL HANDLER] unhandled history request\n";
+        std::cout << "[shlll handler] unhandled history request\n";
     }
 
     else if (msg_type == "is_complete_request") {
-        assert(false && "unhandled is_complete_request");
         // ## Return if line is complete. We say yes if ends if semicolon.
         // # https://jupyter-client.readthedocs.io/en/stable/messaging.html#completion
         // content = {
@@ -254,29 +258,51 @@ void shell_handler(void *iopub_socket, void *shell_socket,
         // send(iopub_stream, 'status', content, parent_header=msg['header'])
         // #######################################################################
         // is_complete_request_code = msg['content']['code'].strip()
-        // metadata = {
-        //     "dependencies_met": True,
-        //     "engine": ENGINE_ID,
-        //     "status": "ok",
-        //     "started": datetime.datetime.now().isoformat(),
-        // }
-        // ends_with_semicolon = False
-        // if is_complete_request_code:
-        //     ends_with_semicolon = is_complete_request_code[-1] == ';'
+        const std::string is_complete_request_code = request.content["code"];
+        {
+            JupyterResponse response;
+            // metadata = {
+            //     "dependencies_met": True,
+            //     "engine": ENGINE_ID,
+            //     "status": "ok",
+            //     "started": datetime.datetime.now().isoformat(),
+            // }
+            response.metadata["dependencies_met"] = true;
+            response.metadata["engine"] = global_state.engine_id;
+            response.metadata["status"] = "ok";
+            response.metadata["started"] = datetime_now_isoformat();
+            // ends_with_semicolon = False
+            // if is_complete_request_code:
+            //     ends_with_semicolon = is_complete_request_code[-1] == ';'
 
-        // content = {
-        //     "status": 'complete' if ends_with_semicolon else 'incomplete',
-        //     "indent": "  " # two space indentation
-
-        // }
-        // send(shell_stream, 'is_complete_reply', content, metadata=metadata,
-        //     parent_header=msg['header'], identities=identities)
+            // content = {
+            //     "status": 'complete' if ends_with_semicolon else 'incomplete',
+            //     "indent": "  " # two space indentation
+            // }
+            response.content["status"] = "complete";
+            response.content["indent"] = "  "; // two space indent
+            //
+            // send(shell_stream, 'is_complete_reply', content, metadata=metadata,
+            //     parent_header=msg['header'], identities=identities)
+            response.msg_type = "is_complete_reply";
+            response.parent_header = request.header;
+            response.identities = request.identities;
+            send_jupyter_response(shell_socket, global_state, response);
+        }
         // #######################################################################
         // content = {
         //     'execution_state': "idle",
         // }
         // send(iopub_stream, 'status', content, parent_header=msg['header'])
         // #######################################################################
+        {
+            JupyterResponse response;
+            response.content["execution_state"] = "idle";
+            response.metadata = json::parse("{}");
+            response.parent_header = request.header;
+            response.msg_type = "status";
+            send_jupyter_response(iopub_socket, global_state, response);
+        }
     } else {
         assert(false && "unknown message type");
     }
@@ -398,14 +424,15 @@ int main(int argc, char **argv) {
         items[i].events = ZMQ_POLLIN;
     }
 
-    for (;;) {
-        // zmq::message_t request;
-        std::cout << "[KERNEL] polling\n";
+    while(1) {
+        // polling is too noisy
+        // std::cout << "[KERNEL] polling\n";
         int rc = zmq_poll (items, NPOLLEDSOCKETS, -1);
         assert(rc >= 0); // did not error
         assert(rc > 0); // did not timeout.
 
-        for(int i = 0; i < NPOLLEDSOCKETS; ++i) {
+        // heartbeat is too noisy.
+        for(int i = HEARTBEAT+1; i < NPOLLEDSOCKETS; ++i) {
             if (items[i].revents != 0) {
                 std::cout << "[KERNEL] got message on [" << 
                     polled_socket_kind_to_str((PolledSocketKind)i) << "]\n";
@@ -427,14 +454,14 @@ int main(int argc, char **argv) {
             
         }
         if (items[CONTROL].revents & ZMQ_POLLIN) {
-            std::cout << "[KERNEL] [CONTROL] has event [" << 
+            std::cout << "[KERNEL] [CONTROL] has request [" << 
                 items[CONTROL].revents << "]\n";
             assert(items[CONTROL].revents & ZMQ_POLLIN);
             std::string msg = zmq_msg_recv_str(sockets[CONTROL]);
             std::cout << "[KERNEL] [CONTROL] |" << msg << "|\n";
         }
         if (items[SHELL].revents & ZMQ_POLLIN) {
-            std::cout << "[KERNEL] [SHELL] has event\n";
+            std::cout << "[KERNEL] [SHELL] has request\n";
 
             // http://api.zeromq.org/2-0:zmq-recv
             std::vector<std::string> messages;
@@ -463,17 +490,17 @@ int main(int argc, char **argv) {
             // m['parent_header'] = decode(msg_frames[1])
             // m['metadata']      = decode(msg_frames[2])
             // m['content']       = decode(msg_frames[3])
-            ShellEvent event;
-            event.header = json::parse(messages[delim_index + 2 + 0]);
-            event.parent_header = json::parse(messages[delim_index + 2 + 1]);
-            event.metadata = json::parse(messages[delim_index + 2 + 2]);
-            event.content = json::parse(messages[delim_index + 2 + 3]);
+            ShellRequest request;
+            request.header = json::parse(messages[delim_index + 2 + 0]);
+            request.parent_header = json::parse(messages[delim_index + 2 + 1]);
+            request.metadata = json::parse(messages[delim_index + 2 + 2]);
+            request.content = json::parse(messages[delim_index + 2 + 3]);
 
             // TODO: should this be a list? will this ever be a list?
             for(int i = 0; i < delim_index; ++i) {
-                event.identities.push_back(messages[i]);
+                request.identities.push_back(messages[i]);
             }
-            shell_handler(iopub_socket, sockets[SHELL], global_state, event);
+            shell_handler(iopub_socket, sockets[SHELL], global_state, request);
         }
 
 
