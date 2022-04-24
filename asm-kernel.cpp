@@ -25,39 +25,58 @@ std::string uuid4() {
 using ll = long long;
 
 
+// Jupyter delimiter between the prefix with routing information and
+// the suffix with real informatoin
 const char DELIM []= "<IDS|MSG>";
 
-std::string deserialize_wire_msg(const unsigned char *msg, const int len) {
-// def deserialize_wire_msg(wire_msg):
-//     """split the routing prefix and message frames from a message on the wire"""
-//     delim_idx = wire_msg.index(DELIM)
-//     identities = wire_msg[:delim_idx]
-//     m_signature = wire_msg[delim_idx + 1]
-//     msg_frames = wire_msg[delim_idx + 2:]
-// 
-//     def decode(msg):
-//         return json.loads(msg.decode('ascii') if PYTHON3 else msg)
-// 
-//     m = {}
-//     m['header']        = decode(msg_frames[0])
-//     m['parent_header'] = decode(msg_frames[1])
-//     m['metadata']      = decode(msg_frames[2])
-//     m['content']       = decode(msg_frames[3])
-//     # bollu:only necessary for paranoia.
-//     check_sig = sign(msg_frames)
-//     if check_sig != m_signature:
-//         raise ValueError("Signatures do not match")
-// 
-//     return identities, m
-}
-
-enum PolledSocketKinds {
+// Sockets to be polled from.
+enum PolledSocketKind {
     HEARTBEAT,
     CONTROL,
     STDIN,
     SHELL,
     NPOLLEDSOCKETS
 };
+
+const char *polled_socket_kind_to_str(PolledSocketKind k) {
+    switch(k) {
+        case HEARTBEAT: return "heartbeat";
+        case CONTROL: return "control";
+        case STDIN: return "stdin";
+        case SHELL: return "shell";
+        case NPOLLEDSOCKETS: assert(false && "not a type of socket");
+    }
+}
+
+// information a shell event possess.
+struct ShellEvent {
+    json header;
+    json parent_header;
+    json metadata;
+    json content;
+};
+void shell_handler(ShellEvent event) {
+    std::cout << "header: |" << event.header << "|\n";
+    std::cout << "parent_header: |" << event.parent_header << "|\n";
+    std::cout << "metadata: |" << event.metadata << "|\n";
+    std::cout << "content: |" << event.content << "|\n";
+};
+
+
+// ZMQ wrapper to recieve a message and wrap in a std::string.
+std::string zmq_msg_recv_str(void *s_) {
+    zmq_msg_t msg;
+    zmq_msg_init(&msg);
+    int rc = zmq_msg_recv(&msg, s_, 0);
+    assert(rc != -1);
+    int size = zmq_msg_size(&msg);
+    char *s = (char *)calloc(size + 1, sizeof(unsigned char));
+    memcpy(s, zmq_msg_data(&msg), size * sizeof(unsigned char));
+    s[size] = 0;
+    std::string out(s);
+    free(s);
+    return out;
+}
 
 int main(int argc, char **argv) {
     // TODO: need to parse argv for json file.
@@ -159,8 +178,15 @@ int main(int argc, char **argv) {
         // zmq::message_t request;
         std::cout << "[KERNEL] polling\n";
         int rc = zmq_poll (items, NPOLLEDSOCKETS, -1);
+        assert(rc >= 0); // did not error
         assert(rc > 0); // did not timeout.
-        assert(rc >= 0);
+
+        for(int i = 0; i < NPOLLEDSOCKETS; ++i) {
+            if (items[i].revents != 0) {
+                std::cout << "[KERNEL] got message on [" << 
+                    polled_socket_kind_to_str((PolledSocketKind)i) << "]\n";
+            }
+        }
 
         if (items[HEARTBEAT].revents != 0) {
             std::cout << "[KERNEL] [HEARTBEAT] bouncing\n";
@@ -179,49 +205,65 @@ int main(int argc, char **argv) {
             std::cout << "[KERNEL] [CONTROL] has event [" << 
                 items[CONTROL].revents << "]\n";
             assert(items[CONTROL].revents & ZMQ_POLLIN);
-            char buf[1025];
-            rc = zmq_recv(sockets[CONTROL],buf, 1024, 0);
-            buf[1024] = 0;
-            assert(rc != -1);
-            std::cout << "[KERNEL] [CONTROL] |" << buf << "|\n";
-
-            // zmq_msg_t msg;
-            // rc = zmq_msg_init (&msg);
-            // assert (rc == 0);
-            // std::cout << "\trecieving..." << std::flush;
-            // rc = zmq_msg_recv (&msg, sockets[CONTROL], 0);
-            // assert (rc != -1);
-            // std::cout << "done!\n";
-            // unsigned char *data = (unsigned char *)zmq_msg_data(&msg);
-            // int size = zmq_msg_size(&msg);
-            // std::cout << "[KERNEL] [CONTROL] size=" << size << "\n";
-            // zmq_msg_close (&msg);
+            std::string msg = zmq_msg_recv_str(sockets[CONTROL]);
+            std::cout << "[KERNEL] [CONTROL] |" << msg << "|\n";
         }
         if (items[SHELL].revents & ZMQ_POLLIN) {
             std::cout << "[KERNEL] [SHELL] has event\n";
 
             // http://api.zeromq.org/2-0:zmq-recv
+            std::vector<std::string> messages;
             int64_t more = 0;
             do {
-                static const int BUFSZ = 1<<20;
-                char *buf = (char*) calloc((BUFSZ+1), sizeof(char));
-                rc = zmq_recv(sockets[SHELL],buf, BUFSZ, 0);
-                buf[BUFSZ] = 0;
-                assert(rc != -1);
-                std::cout << "[KERNEL] [SHELL] |" << buf << "|\n";
+                std::string s = zmq_msg_recv_str(sockets[SHELL]);
+                // static const int BUFSZ = 1<<20;
+                // char *buf = (char*) calloc((BUFSZ+1), sizeof(char));
+                // zmq_msg_t msg;
+                // zmq_msg_init(&msg);
+                // rc = zmq_msg_recv(&msg, sockets[SHELL], 0);
+                // assert(rc != -1);
+                // int size = zmq_msg_size(&msg);
+                // char *s = (char *)calloc(size + 1, sizeof(unsigned char));
+                // memcpy(s, zmq_msg_data(&msg), size * sizeof(unsigned char));
+                // s[size] = 0;
+                // messages.push_back(std::string(s));
+                // free(s);
+                messages.push_back(s);
                 size_t ll_size = sizeof(int64_t);
                 rc = zmq_getsockopt(sockets[SHELL], ZMQ_RCVMORE, &more, &ll_size);
                 assert(rc == 0);
-                free(buf);
+                // rc = zmq_recv(sockets[SHELL],buf, BUFSZ, 0);
+                // buf[BUFSZ] = 0;
+                // assert(rc != -1);
+                // std::cout << "[KERNEL] [SHELL] |" << buf << "|\n";
+                // size_t ll_size = sizeof(int64_t);
+                // rc = zmq_getsockopt(sockets[SHELL], ZMQ_RCVMORE, &more, &ll_size);
+                // assert(rc == 0);
+                // free(buf);
             } while(more);
 
-        }
-        for(int i = 2; i < NPOLLEDSOCKETS; ++i) {
-            if (items[i].revents != 0) {
-                std::cout << "GOT MESSAGE ON [" << i << "]\n";
+            int delim_index = -1; // index of delimiter
+            for(int i = 0; i < messages.size(); ++i) {
+                if (messages[i] == DELIM) { delim_index = i; }
+                std::cout << "  - " << messages[i] << "\n";
             }
-            assert(items[i].revents == 0);
+            assert(delim_index != -1 && "unable to find delimiter");
+            // identities = messages[0:delim_index]
+            // signature = messages[delim_index+1]
+            // msg_frames = wire_msg[delim_idx + 2:]
+            // m = {}
+            // m['header']        = decode(msg_frames[0])
+            // m['parent_header'] = decode(msg_frames[1])
+            // m['metadata']      = decode(msg_frames[2])
+            // m['content']       = decode(msg_frames[3])
+            ShellEvent event;
+            event.header = json::parse(messages[delim_index + 2 + 0]);
+            event.parent_header = json::parse(messages[delim_index + 2 + 1]);
+            event.metadata = json::parse(messages[delim_index + 2 + 2]);
+            event.content = json::parse(messages[delim_index + 2 + 3]);
+            shell_handler(event);
         }
+
 
         
         // receive a request from client
