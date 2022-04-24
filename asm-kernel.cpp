@@ -77,7 +77,7 @@ struct ShellEvent {
     std::vector<std::string> identities;
 };
 
-struct ShellResponse {
+struct JupyterResponse {
     std::string msg_type;
     json content;
     json parent_header;
@@ -113,8 +113,9 @@ int zmq_msg_send_str(void *s_, std::string s, int flags) {
     return rc;
 }
 
-void send_shell_response(void *socket, GlobalState globals, const
-        ShellResponse &response) {
+// send response structure the way Jupyter expects them.
+void send_jupyter_response(void *socket, GlobalState globals, const
+        JupyterResponse &response) {
     json header;
     header["date"] = "2022-04-24T02:20:01.512817Z"; // TODO
     header["msg_id"] = uuid4(); // TODO:ouch!
@@ -206,7 +207,7 @@ void shell_handler(void *iopub_socket, void *shell_socket,
     std::cout << "[SHLLL HANDLER] message type: |" << msg_type << "|\n";
     if (msg_type == "kernel_info_request") {
         {
-            ShellResponse response;
+            JupyterResponse response;
             response.msg_type = "kernel_info_reply";
             // TODO: is this mapping between event and response the same?
             response.identities = event.identities;
@@ -227,16 +228,16 @@ void shell_handler(void *iopub_socket, void *shell_socket,
             response.content["banner"] = "";
             response.metadata = json::parse("{}");
             std::cout << "response.content: |" << response.content << "|\n";
-            send_shell_response(shell_socket, global_state, response);
+            send_jupyter_response(shell_socket, global_state, response);
         }
         {
-            ShellResponse response;
+            JupyterResponse response;
             response.msg_type = "status";
             // TODO: is this mapping between event and response the same?
             response.parent_header = event.header;
             response.content["execution_state"] = "idle";
             response.metadata = json::parse("{}");
-            send_shell_response(iopub_socket, global_state, response);
+            send_jupyter_response(iopub_socket, global_state, response);
         }
     } 
     else if (msg_type == "history_request") {
