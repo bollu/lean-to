@@ -26,12 +26,12 @@ def runCommandElabM_ (commandElabM : CommandElabM Unit) :
   let k ← (commandElabM commandElabCtx).run
     { env := ← mkEmptyEnvironment, maxRecDepth := defaultMaxRecDepth } |>.toIO'
 
-def runCommandElabM (commandElabM : CommandElabM (String × String × String)) : IO (String × String × String) := do
-  let ret ← (commandElabM commandElabCtx).run
-    { env := ← mkEmptyEnvironment, maxRecDepth := defaultMaxRecDepth } |>.toIO'
+def runCommandElabM (state: State)  (commandElabM : CommandElabM (String × String × String)) :
+  IO (String × String × String × State) := do
+  let ret ← (commandElabM commandElabCtx).run state |>.toIO'
   match ret with 
-  | Except.error err => ("", "", (← err.toMessageData.toString))
-  | Except.ok ((val, stdout, stderr), state) => (val, stdout, stderr)
+  | Except.error err => ("", "", (← err.toMessageData.toString), state)
+  | Except.ok ((val, stdout, stderr), state) => (val, stdout, stderr, state)
 
 def command2ElabM (cmd : String) : CommandElabM Unit := do
   match Parser.runParserCategory (← getEnv) `command cmd fileName with
@@ -114,9 +114,10 @@ def main (args: List String): IO Unit := do
   let imports ← buildImports args
   IO.print "> "
   let cmdIn ←  (← (← IO.getStdin).getLine)
-  let (val, out, err) ← runCommandElabM $ do 
+  let state := { env := ← mkEmptyEnvironment, maxRecDepth := defaultMaxRecDepth } 
+  let (val, out, err, state) ← runCommandElabM state (do 
     setEnv (← cleanStack imports).peek!
-    command2ElabMC cmdIn
+    command2ElabMC cmdIn)
   IO.println $ "val: |" ++ val  ++ "|"
   IO.println $ "out: |" ++ out  ++ "|"
   IO.println $ "err: |" ++ err  ++ "|"
