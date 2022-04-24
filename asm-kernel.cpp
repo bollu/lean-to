@@ -111,24 +111,47 @@ void shell_handler(void *iopub_socket, void *shell_socket, ShellEvent event) {
     const std::string msg_type = event.header["msg_type"].get<std::string>();
     std::cout << "[SHLLL HANDLER] message type: |" << msg_type << "|\n";
     if (msg_type == "kernel_info_request") {
-        const std::string content = "{"
-        "    'protocol_version': '5.0',"
-        "    'ipython_version': [1, 1, 0, ''],"
-        "    'language_version': [0, 0, 1],"
-        "    'language': 'simple_kernel',"
-        "    'implementation': 'simple_kernel',"
-        "    'implementation_version': '1.1',"
-        "    'language_info': {"
-        "        'name': 'simple_kernel',"
-        "        'version': '1.0',"
-        "        'mimetype': '',"
-        "        'file_extension': '.py',"
-        "        'pygments_lexer': '',"
-        "        'codemirror_mode': '',"
-        "        'nbconvert_exporter': '',"
-        "    },"
-        "    'banner': ''"
-        "}";
+        {
+            ShellResponse response;
+            response.msg_type = "kernel_info_reply";
+            // TODO: is this mapping between event and response the same?
+            response.identities = event.identities;
+            response.parent_header = event.header;
+            response.content = json::parse("{"
+                "    'protocol_version': '5.0',"
+                "    'ipython_version': [1, 1, 0, ''],"
+                "    'language_version': [0, 0, 1],"
+                "    'language': 'simple_kernel',"
+                "    'implementation': 'simple_kernel',"
+                "    'implementation_version': '1.1',"
+                "    'language_info': {"
+                "        'name': 'simple_kernel',"
+                "        'version': '1.0',"
+                "        'mimetype': '',"
+                "        'file_extension': '.py',"
+                "        'pygments_lexer': '',"
+                "        'codemirror_mode': '',"
+                "        'nbconvert_exporter': '',"
+                "    },"
+                "    'banner': ''"
+                "}");
+            zmq_send_shell_response(shell_socket, response);
+        }
+        {
+            ShellResponse response;
+            response.msg_type = "status";
+            // TODO: is this mapping between event and response the same?
+            response.parent_header = event.header;
+            response.content = json::parse("{"
+                "    'execution_state': 'idle'"
+                "}");
+            zmq_send_shell_response(iopub_socket, response);
+        }
+
+
+
+
+
     }
     else if (msg_type == "execute_request") {
     } else {
