@@ -65,6 +65,7 @@ const char *polled_socket_kind_to_str(PolledSocketKind k) {
         case SHELL: return "shell";
         case NPOLLEDSOCKETS: assert(false && "not a type of socket");
     }
+    assert(false && "unreachable");
 }
 
 // information a shell event possess.
@@ -91,7 +92,8 @@ struct GlobalState {
     std::string engine_id; // engine ID is some random UUID
 };
 
-void my_free (void *data, void *hint) {
+// custom free function to free memory from zmq
+void free_c_string_for_zmq (void *data, void *hint) {
     free (data);
 }
 
@@ -105,7 +107,7 @@ int zmq_msg_send_str(void *s_, std::string s, int flags) {
     assert (rc == 0);
     /* Fill in message content with 'AAAAAA' */
     const char *data = strdup(s.c_str());
-    zmq_msg_init_data(&msg, (void*)data, strlen(data), my_free, NULL);
+    zmq_msg_init_data(&msg, (void*)data, strlen(data), free_c_string_for_zmq, NULL);
     rc = zmq_msg_send(&msg, s_, flags);
     assert(rc != -1);
     return rc;
@@ -121,6 +123,7 @@ void send_shell_response(void *socket, GlobalState globals, const
     header["msg_type"] = response.msg_type;
     header["version"] = "5.0";
 
+    std::cout << "[KERNEL] [RESPONSE]" << "hmac key: |" << globals.key << "|\n";
     HMAC_CTX *h = HMAC_CTX_new();
     int status = HMAC_Init(h, globals.key.c_str(), globals.key.size(), EVP_sha256());
     assert(status == 1);
@@ -144,7 +147,7 @@ void send_shell_response(void *socket, GlobalState globals, const
         response.content.dump()
     };
 
-    for(std::string &m : msg_list) {
+    for(std::string m : msg_list) {
         status = HMAC_Update(h, (const unsigned char *) m.c_str(), m.size());
         assert(status == 1);
     }
@@ -176,7 +179,7 @@ void send_shell_response(void *socket, GlobalState globals, const
     parts.insert(parts.end(), msg_list.begin(), msg_list.end());
     int rc = 0;
     for(int i = 0; i < parts.size(); ++i) {
-        std::cout << "sent |[" << i << "]" << parts[i] << "|\n"; 
+        std::cout << "[KERNEL] [RESPONSE] sent [" << i << "] |" << parts[i] << "|\n"; 
         const int flag = i == parts.size() - 1 ? 0 : ZMQ_SNDMORE;
         rc = zmq_msg_send_str(socket, parts[i], flag);
         assert(rc != -1);
