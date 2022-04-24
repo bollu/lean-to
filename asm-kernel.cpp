@@ -54,14 +54,86 @@ struct ShellEvent {
     json parent_header;
     json metadata;
     json content;
+    std::vector<std::string> identities;
 };
+
+struct ShellResponse {
+    std::string msg_type;
+    json content;
+    json parent_header;
+    json metadata;
+    // TODO: should this be a list? will this ever be a list?
+    std::vector<std::string> identities;
+};
+
+void zmq_send_shell_response(void *sock, const ShellResponse &response) {
+    // auth = hmac.HMAC(
+    //     secure_key,
+    //     digestmod=signature_schemes[config["signature_scheme"]])
+    // def sign(msg_lst):
+    // h = auth.copy()
+    // for m in msg_lst:
+    //     h.update(m)
+    // return str_to_bytes(h.hexdigest())
+    // msg_lst = [
+    //     encode(header),
+    //     encode(parent_header),
+    //     encode(metadata),
+    //     encode(content),
+    // ]
+    //signature = sign(msg_lst)
+    // parts = [DELIM,
+    //          signature,
+    //          msg_lst[0],
+    //          msg_lst[1],
+    //          msg_lst[2],
+    //          msg_lst[3]]
+    // if identities:
+    //     parts = identities + parts
+    // dprint(3, "send parts:", parts)
+    // stream.send_multipart(parts)
+    // stream.flush()
+}
 
 // handle shell event by replying on iopub and shell sockets
 void shell_handler(void *iopub_socket, void *shell_socket, ShellEvent event) {
-    std::cout << "header: |" << event.header << "|\n";
-    std::cout << "parent_header: |" << event.parent_header << "|\n";
-    std::cout << "metadata: |" << event.metadata << "|\n";
-    std::cout << "content: |" << event.content << "|\n";
+    std::cout << "[SHELL HANDLER] identities: ";
+    for(int i = 0; i < event.identities.size(); ++i) {
+        std::cout << "|" << event.identities[i] << "|";
+    }
+
+    std::cout << "\n";
+    std::cout << "[SHELL HANDLER] header: |" << event.header << "|\n";
+    std::cout << "[SHELL HANDLER] parent_header: |" << event.parent_header << "|\n";
+    std::cout << "[SHELL HANDLER] metadata: |" << event.metadata << "|\n";
+    std::cout << "[SHELL HANDLER] content: |" << event.content << "|\n";
+
+    const std::string msg_type = event.header["msg_type"].get<std::string>();
+    std::cout << "[SHLLL HANDLER] message type: |" << msg_type << "|\n";
+    if (msg_type == "kernel_info_request") {
+        const std::string content = "{"
+        "    'protocol_version': '5.0',"
+        "    'ipython_version': [1, 1, 0, ''],"
+        "    'language_version': [0, 0, 1],"
+        "    'language': 'simple_kernel',"
+        "    'implementation': 'simple_kernel',"
+        "    'implementation_version': '1.1',"
+        "    'language_info': {"
+        "        'name': 'simple_kernel',"
+        "        'version': '1.0',"
+        "        'mimetype': '',"
+        "        'file_extension': '.py',"
+        "        'pygments_lexer': '',"
+        "        'codemirror_mode': '',"
+        "        'nbconvert_exporter': '',"
+        "    },"
+        "    'banner': ''"
+        "}";
+    }
+    else if (msg_type == "execute_request") {
+    } else {
+        assert(false && "unknown message type");
+    }
 };
 
 
@@ -224,12 +296,14 @@ int main(int argc, char **argv) {
                 assert(rc == 0);
             } while(more);
 
+            // TODO: will delim_index ever not be equal to 1?
             int delim_index = -1; // index of delimiter
             for(int i = 0; i < messages.size(); ++i) {
                 if (messages[i] == DELIM) { delim_index = i; }
                 std::cout << "  - " << messages[i] << "\n";
             }
             assert(delim_index != -1 && "unable to find delimiter");
+            assert(delim_index == 1 && "GUESS: delim_index will always be 1");
             // identities = messages[0:delim_index]
             // signature = messages[delim_index+1]
             // msg_frames = wire_msg[delim_idx + 2:]
@@ -243,6 +317,11 @@ int main(int argc, char **argv) {
             event.parent_header = json::parse(messages[delim_index + 2 + 1]);
             event.metadata = json::parse(messages[delim_index + 2 + 2]);
             event.content = json::parse(messages[delim_index + 2 + 3]);
+
+            // TODO: should this be a list? will this ever be a list?
+            for(int i = 0; i < delim_index; ++i) {
+                event.identities.push_back(messages[i]);
+            }
             shell_handler(iopub_socket, sockets[SHELL], event);
         }
 
