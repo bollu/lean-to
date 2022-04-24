@@ -239,6 +239,42 @@ void shell_handler(void *iopub_socket, void *shell_socket,
             send_shell_response(iopub_socket, global_state, response);
         }
     } 
+    else if (msg_type == "history_request") {
+        std::cout << "[SHLLL HANDLER] unhandled history request\n";
+    }
+
+    else if (msg_type == "is_complete_request") {
+        // ## Return if line is complete. We say yes if ends if semicolon.
+        // # https://jupyter-client.readthedocs.io/en/stable/messaging.html#completion
+        content = {
+             'execution_state': "busy",
+        }
+        // send(iopub_stream, 'status', content, parent_header=msg['header'])
+        // #######################################################################
+        // is_complete_request_code = msg['content']['code'].strip()
+        // metadata = {
+        //     "dependencies_met": True,
+        //     "engine": ENGINE_ID,
+        //     "status": "ok",
+        //     "started": datetime.datetime.now().isoformat(),
+        // }
+        // ends_with_semicolon = False
+        // if is_complete_request_code:
+        //     ends_with_semicolon = is_complete_request_code[-1] == ';'
+
+        // content = {
+        //     "status": 'complete' if ends_with_semicolon else 'incomplete',
+        //     "indent": "  " # two space indentation
+
+        // }
+        // send(shell_stream, 'is_complete_reply', content, metadata=metadata,
+        //     parent_header=msg['header'], identities=identities)
+        // #######################################################################
+        // content = {
+        //     'execution_state': "idle",
+        // }
+        // send(iopub_stream, 'status', content, parent_header=msg['header'])
+        // #######################################################################
     else {
         assert(false && "unknown message type");
     }
@@ -375,7 +411,8 @@ int main(int argc, char **argv) {
         }
 
         if (items[HEARTBEAT].revents != 0) {
-            std::cout << "[KERNEL] [HEARTBEAT] bouncing\n";
+            // vvv quite noisy.
+            // std::cout << "[KERNEL] [HEARTBEAT] bouncing\n";
             zmq_msg_t msg;
             rc = zmq_msg_init (&msg);
             assert (rc == 0);
