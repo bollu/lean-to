@@ -1,9 +1,11 @@
-# Introduction
+# Lean-to
 
-To start, 
+> A Jupyter shelter for your Lean4 code.
+
 
 ```bash=
-jupyter console --KernelManager.kernel_cmd="['./simple_kernel.py','{connection_file}']"
+make install-kernel
+make run-cpp-notebook
 ```
 
 ##### Python packaging hell
