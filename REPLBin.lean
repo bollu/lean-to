@@ -14,7 +14,7 @@ import REPLLib
 open Lean Lean.Elab Lean.Elab.Command Std
 
 def main (args: List String): IO Unit := do
-  initSearchPath (← findSysroot?)
+  -- initSearchPath (← findSysroot?)
   -- let imports ← buildImports args
   IO.print "> "
   let code ←  (← (← IO.getStdin).getLine)

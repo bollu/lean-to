@@ -35,6 +35,7 @@ def runCommandElabM_ (commandElabM : CommandElabM Unit) :
 
 def runCommandElabM (state: State)  (commandElabM : CommandElabM (String × String × String)) :
   IO (String × String × String × State) := do
+  initSearchPath (← findSysroot?)
   let imports ← buildImports []
   let fullCmd : CommandElabM (String × String × String) := do
     setEnv (← cleanStack imports).peek!
@@ -57,7 +58,7 @@ def command2ElabM (cmd : String) : CommandElabM Unit := do
 -- | returns (val, stdout, stderr)
 def command2ElabMC (cmd : String) : CommandElabM (String × String × String) := do
   match Parser.runParserCategory (← getEnv) `command cmd fileName with
-  | Except.error err => ("", "", err)
+  | Except.error err => ("", "", "parseError: " ++ err)
   | Except.ok stx    =>
     let _ ← modifyGet fun st => (st.messages, { st with messages := {} })
     elabCommandTopLevel stx
@@ -65,9 +66,9 @@ def command2ElabMC (cmd : String) : CommandElabM (String × String × String) :=
     let (val, stdout, stderr) ← (← get).messages.msgs.toList.foldlM (fun accum msg => do
       let (val, stdout, stderr) := accum
       match msg.severity with
-      | MessageSeverity.error => (val, stdout, stderr ++ "\n" ++ (← msg.toString))
-      | _ => (val, stdout ++ "\n" ++ (← msg.toString), stderr)
-      ) ("", "", "")
+      | MessageSeverity.error => (val, stdout, stderr ++ "\n-msg: " ++ (← msg.toString))
+      | _ => (val, stdout ++ "\n-out: " ++ (← msg.toString), stderr)
+      ) ("A", "B", "C")
 
     return (val, stdout, stderr)
     --   totMsgs ++ "\n" ++ msg.toString
@@ -120,15 +121,8 @@ def mk_init_state : IO State := do
   let s : State := { env := ← mkEmptyEnvironment, maxRecDepth := defaultMaxRecDepth } 
   return s
 
-@[export tuple_fst]
-def tuple_fst (x: α × β): α := x.fst
-
-@[export tuple_snd]
-def tuple_snd (x: α × β): β := x.snd
-
 @[export run_code]
 def runCode (state: State) (code: String): IO (String × (String × (String × State))) :=
-  let k := (10, 20)
   runCommandElabM state (command2ElabMC code)
 
 
