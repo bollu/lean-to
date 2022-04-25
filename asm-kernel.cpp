@@ -30,11 +30,20 @@ extern "C" {
     void lean_initialize_runtime_module();
     lean_object* lean_io_error_to_string(lean_object * err);
     lean_object* initialize_REPLLib(lean_object* w);
+    // static inline char const * lean_string_cstr(b_lean_obj_arg o) {
+    // LEAN_SHARED lean_obj_res lean_mk_string(char const * s);
 
 };
-// static inline char const * lean_string_cstr(b_lean_obj_arg o) {
-// LEAN_SHARED lean_obj_res lean_mk_string(char const * s);
 
+// Unwrap the IO object, throwing an error if an IO error occured.
+lean_object* lean_unwrap_io(lean_object *o) {
+    if (lean_io_result_is_error(o)) {
+        lean_io_result_show_error(o);
+        assert(false && "execution error");
+    } else {
+        return lean_io_result_get_value(o);
+    }
+}
 
 json json_empty_object() {
     // https://github.com/nlohmann/json/issues/2046#issuecomment-868980645
@@ -366,16 +375,21 @@ void shell_handler(void *iopub_socket, void *shell_socket,
         // TODO: hook into lean here!
         
         std::cout << "[SHELL HANDLER] run_code..........." << std::flush;
-        lean_object *run_return = run_code(global_state.shell_state, lean_mk_string(code_to_execute.c_str()), lean_io_mk_world());
-        // std::string out(lean_string_cstr(tuple_fst(run_return)));
+        lean_object *run_return = lean_unwrap_io(run_code(global_state.shell_state, lean_mk_string(code_to_execute.c_str()), lean_io_mk_world()));
+        std::cout << "!\n";
 
-        // run_return = tuple_snd(run_return);
-        // std::string err(lean_string_cstr(tuple_fst(run_return)));
+        std::string out(lean_string_cstr(lean_ctor_get(run_return, 0)));
+        std::cout << "out: |" << out << "|\n";
 
-        // run_return = tuple_snd(run_return);
-        // std::string val(lean_string_cstr(tuple_fst(run_return)));
+        run_return = lean_ctor_get(run_return, 1);
+        std::string err(lean_string_cstr(lean_ctor_get(run_return, 0)));
+        std::cout << "err: |" << err << "|\n";
 
-        // global_state.shell_state = tuple_snd(run_return);
+        run_return = lean_ctor_get(run_return, 1);
+        std::string val(lean_string_cstr(lean_ctor_get(run_return, 0)));
+        std::cout << "val: |" << val << "|\n";
+
+        global_state.shell_state = lean_ctor_get(run_return, 1);
         // const ShellExecutionResponse lang_server_response(out, err, out);
         const ShellExecutionResponse lang_server_response("out", "err", "val");
 
@@ -505,6 +519,7 @@ std::string zmq_msg_recv_str(void *s_) {
 }
 
 
+
 int main(int argc, char **argv) {
     srand(0);
     // TODO: need to parse argv for json file.
@@ -535,20 +550,9 @@ int main(int argc, char **argv) {
     global_state.engine_id = uuid4();
     lean_initialize_runtime_module();
     initialize_REPLLib(lean_io_mk_world());
+    lean_io_mark_end_initialization();
 
-    // lean_io_mark_end_initialization();
-    global_state.shell_state = mk_init_state(lean_io_mk_world());
-    if (lean_io_result_is_error(global_state.shell_state)) {
-        lean_io_result_show_error(global_state.shell_state);
-        assert(false && "execution error");
-
-        const char *err = lean_string_cstr(lean_io_error_to_string(global_state.shell_state));
-        std::cout << "[LEAN EXECUTION ERROR] ****" << err << "****\n";
-        assert(false && "execution error");
-        exit(42);
-    } else {
-        global_state.shell_state = lean_io_result_get_value(global_state.shell_state);
-    }
+    global_state.shell_state = lean_unwrap_io(mk_init_state(lean_io_mk_world()));
 
 
     // https://github.com/kazuho/picohash/blob/master/picohash.h
