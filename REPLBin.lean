@@ -13,14 +13,17 @@ import REPLLib
 
 open Lean Lean.Elab Lean.Elab.Command Std
 
-def main (args: List String): IO Unit := do
-  -- initSearchPath (← findSysroot?)
-  -- let imports ← buildImports args
+partial def mainLoop (state: State) : IO Unit := do
   IO.print "> "
   let code ←  (← (← IO.getStdin).getLine)
-  let state ← mk_init_state
   let (val, out, err, state) ← runCode state code
   IO.println $ "val: |" ++ val  ++ "|"
   IO.println $ "out: |" ++ out  ++ "|"
   IO.println $ "err: |" ++ err  ++ "|"
+  mainLoop state
+
+def main (args: List String): IO Unit := do
+  -- initSearchPath (← findSysroot?)
+  -- let imports ← buildImports args
+  mainLoop  (← mk_init_state)
 

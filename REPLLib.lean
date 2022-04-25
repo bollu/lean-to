@@ -44,7 +44,7 @@ def runCommandElabM (state: State)  (commandElabM : CommandElabM (String × Stri
   let ret ← (fullCmd commandElabCtx).run state |>.toIO'
   match ret with 
   | Except.error err => ("", "", (← err.toMessageData.toString), state)
-  | Except.ok ((val, stdout, stderr), state) => (val, stdout, stderr, state)
+  | Except.ok ((val, stdout, stderr), state') => (val, stdout, stderr, state')
 
 def command2ElabM (cmd : String) : CommandElabM Unit := do
   match Parser.runParserCategory (← getEnv) `command cmd fileName with
