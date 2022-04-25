@@ -28,6 +28,9 @@ extern "C" {
     lean_object* tuple_fst(lean_object*);
     lean_object* tuple_snd(lean_object*);
     void lean_initialize_runtime_module();
+    lean_object* lean_io_error_to_string(lean_object * err);
+    lean_object* initialize_REPLLib(lean_object* w);
+
 };
 // static inline char const * lean_string_cstr(b_lean_obj_arg o) {
 // LEAN_SHARED lean_obj_res lean_mk_string(char const * s);
@@ -364,7 +367,6 @@ void shell_handler(void *iopub_socket, void *shell_socket,
         
         std::cout << "[SHELL HANDLER] run_code..........." << std::flush;
         lean_object *run_return = run_code(global_state.shell_state, lean_mk_string(code_to_execute.c_str()), lean_io_mk_world());
-        std::cout << "!\n";
         // std::string out(lean_string_cstr(tuple_fst(run_return)));
 
         // run_return = tuple_snd(run_return);
@@ -532,7 +534,21 @@ int main(int argc, char **argv) {
     global_state.key = config["key"].get<std::string>();
     global_state.engine_id = uuid4();
     lean_initialize_runtime_module();
+    initialize_REPLLib(lean_io_mk_world());
+
+    // lean_io_mark_end_initialization();
     global_state.shell_state = mk_init_state(lean_io_mk_world());
+    if (lean_io_result_is_error(global_state.shell_state)) {
+        lean_io_result_show_error(global_state.shell_state);
+        assert(false && "execution error");
+
+        const char *err = lean_string_cstr(lean_io_error_to_string(global_state.shell_state));
+        std::cout << "[LEAN EXECUTION ERROR] ****" << err << "****\n";
+        assert(false && "execution error");
+        exit(42);
+    } else {
+        global_state.shell_state = lean_io_result_get_value(global_state.shell_state);
+    }
 
 
     // https://github.com/kazuho/picohash/blob/master/picohash.h
