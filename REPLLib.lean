@@ -33,18 +33,19 @@ def runCommandElabM_ (commandElabM : CommandElabM Unit) :
   let k ← (commandElabM commandElabCtx).run
     { env := ← mkEmptyEnvironment, maxRecDepth := defaultMaxRecDepth } |>.toIO'
 
-def runCommandElabM (state: State)  (commandElabM : CommandElabM (String × String × String)) :
+def runCommandElabM (state: State)  (commandElabM : CommandElabM (String × String × String × Environment)) :
   IO (String × String × String × State) := do
   -- initSearchPath  (← findSysroot?)
   initSearchPath "/home/bollu/.elan/toolchains/leanprover--lean4---nightly-2022-01-15"
   let imports ← buildImports []
-  let fullCmd : CommandElabM (String × String × String) := do
-    setEnv (← cleanStack imports).peek!
+  let fullCmd : CommandElabM (String × String × String × Environment) := do
+    -- setEnv (← cleanStack imports).peek!
     commandElabM
   let ret ← (fullCmd commandElabCtx).run state |>.toIO'
   match ret with 
   | Except.error err => ("", "", (← err.toMessageData.toString), state)
-  | Except.ok ((val, stdout, stderr), state') => (val, stdout, stderr, state')
+  | Except.ok ((val, stdout, stderr, env'), state') => do
+      return (val, stdout, stderr, { state' with env := env'} )
 
 def command2ElabM (cmd : String) : CommandElabM Unit := do
   match Parser.runParserCategory (← getEnv) `command cmd fileName with
@@ -57,9 +58,9 @@ def command2ElabM (cmd : String) : CommandElabM Unit := do
 
 -- | a C version of the same that returns errors etc.
 -- | returns (val, stdout, stderr)
-def command2ElabMC (cmd : String) : CommandElabM (String × String × String) := do
+def command2ElabMC (cmd : String) : CommandElabM (String × String × String × Environment) := do
   match Parser.runParserCategory (← getEnv) `command cmd fileName with
-  | Except.error err => ("", "", "parseError: " ++ err)
+  | Except.error err => ("", "", "parseError: " ++ err, (← getEnv))
   | Except.ok stx    =>
     let _ ← modifyGet fun st => (st.messages, { st with messages := {} })
     elabCommandTopLevel stx
@@ -70,8 +71,7 @@ def command2ElabMC (cmd : String) : CommandElabM (String × String × String) :=
       | MessageSeverity.error => (val, stdout, stderr ++ "\n" ++ (← msg.toString))
       | _ => (val, stdout ++ "\n" ++ (← msg.toString), stderr)
       ) ("", "", "")
-
-    return (val, stdout, stderr)
+    return (val, stdout, stderr, (← getEnv))
     --   totMsgs ++ "\n" ++ msg.toString
 
 
@@ -119,7 +119,9 @@ def main_old (args : List String) : IO Unit := do
 
 @[export mk_init_state]
 def mk_init_state : IO State := do
-  let s : State := { env := ← mkEmptyEnvironment, maxRecDepth := defaultMaxRecDepth } 
+  initSearchPath (← findSysroot?)
+  -- initSearchPath "/home/bollu/.elan/toolchains/leanprover--lean4---nightly-2022-01-15"
+  let s : State := { env := ← (importModules [{ module := Name.mkSimple "Init" }] {}), maxRecDepth := defaultMaxRecDepth } 
   return s
 
 @[export run_code]
