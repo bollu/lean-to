@@ -6,5 +6,5 @@ package REPL {
   libName := "REPLLib"
   binRoot := `REPLBin
   libRoots := #[`REPLLib] 
-  -- supportInterpreter := true
+  supportInterpreter := true
 }
