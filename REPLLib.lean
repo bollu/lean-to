@@ -35,7 +35,8 @@ def runCommandElabM_ (commandElabM : CommandElabM Unit) :
 
 def runCommandElabM (state: State)  (commandElabM : CommandElabM (String × String × String)) :
   IO (String × String × String × State) := do
-  initSearchPath (← findSysroot?)
+  -- initSearchPath  (← findSysroot?)
+  initSearchPath "/home/bollu/.elan/toolchains/leanprover--lean4---nightly-2022-01-15"
   let imports ← buildImports []
   let fullCmd : CommandElabM (String × String × String) := do
     setEnv (← cleanStack imports).peek!
@@ -66,9 +67,9 @@ def command2ElabMC (cmd : String) : CommandElabM (String × String × String) :=
     let (val, stdout, stderr) ← (← get).messages.msgs.toList.foldlM (fun accum msg => do
       let (val, stdout, stderr) := accum
       match msg.severity with
-      | MessageSeverity.error => (val, stdout, stderr ++ "\n-msg: " ++ (← msg.toString))
-      | _ => (val, stdout ++ "\n-out: " ++ (← msg.toString), stderr)
-      ) ("A", "B", "C")
+      | MessageSeverity.error => (val, stdout, stderr ++ "\n" ++ (← msg.toString))
+      | _ => (val, stdout ++ "\n" ++ (← msg.toString), stderr)
+      ) ("", "", "")
 
     return (val, stdout, stderr)
     --   totMsgs ++ "\n" ++ msg.toString

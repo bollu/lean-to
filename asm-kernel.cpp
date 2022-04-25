@@ -27,7 +27,12 @@ extern "C" {
     lean_object* run_code(lean_object*, lean_object*, lean_object*);
     lean_object* tuple_fst(lean_object*);
     lean_object* tuple_snd(lean_object*);
-    void lean_initialize_runtime_module();
+    // https://github.com/leanprover/lean4/blob/6a880fecc996895ee39b54ac206b1bae8f98a54c/stage0/src/initialize/init.cpp
+    // /* Initializes the Lean runtime. Before executing any code which uses the Lean package,
+    // you must first call this function, and then `lean::io_mark_end_initialization`. Inbetween
+    // these two calls, you may also have to run additional initializers for your own modules. */
+    void lean_initialize();
+    // void lean_initialize_runtime_module();
     lean_object* lean_io_error_to_string(lean_object * err);
     lean_object* initialize_REPLLib(lean_object* w);
     // static inline char const * lean_string_cstr(b_lean_obj_arg o) {
@@ -41,6 +46,7 @@ lean_object* lean_unwrap_io(lean_object *o) {
         lean_io_result_show_error(o);
         assert(false && "execution error");
     } else {
+        assert(lean_io_result_is_ok(o));
         return lean_io_result_get_value(o);
     }
 }
@@ -375,9 +381,16 @@ void shell_handler(void *iopub_socket, void *shell_socket,
         // TODO: hook into lean here!
         
         std::cout << "[SHELL HANDLER] run_code..........." << std::flush;
-        lean_object *run_return = lean_unwrap_io(run_code(global_state.shell_state, lean_mk_string(code_to_execute.c_str()), lean_io_mk_world()));
-        std::cout << "!\n";
+        assert(global_state.shell_state);
+        lean_object *run_return = run_code(global_state.shell_state, lean_mk_string(code_to_execute.c_str()), lean_io_mk_world());
+        // TODO: figure out WTF is going on here.
+        run_return = lean_unwrap_io(run_return);
+        std::cout << "!\n" << std::flush;
 
+        std::string val(lean_string_cstr(lean_ctor_get(run_return, 0)));
+        std::cout << "val: |" << val << "|\n";
+
+        run_return = lean_ctor_get(run_return, 1);
         std::string out(lean_string_cstr(lean_ctor_get(run_return, 0)));
         std::cout << "out: |" << out << "|\n";
 
@@ -385,13 +398,9 @@ void shell_handler(void *iopub_socket, void *shell_socket,
         std::string err(lean_string_cstr(lean_ctor_get(run_return, 0)));
         std::cout << "err: |" << err << "|\n";
 
-        run_return = lean_ctor_get(run_return, 1);
-        std::string val(lean_string_cstr(lean_ctor_get(run_return, 0)));
-        std::cout << "val: |" << val << "|\n";
-
         global_state.shell_state = lean_ctor_get(run_return, 1);
         // const ShellExecutionResponse lang_server_response(out, err, out);
-        const ShellExecutionResponse lang_server_response("out", "err", "val");
+        const ShellExecutionResponse lang_server_response(out, err, val);
 
         {
             // This tells the notebook what is being executed
@@ -422,8 +431,8 @@ void shell_handler(void *iopub_socket, void *shell_socket,
             //     'text': lang_server_response.stdout
             // }
             // send(iopub_stream, 'stream', content, parent_header=msg['header'])
-            response.content["name"] = "stderr";
-            response.content["text"] = "XXXXXXXX" + lang_server_response.out + "XXXXXXX";
+            response.content["name"] = "stdout";
+            response.content["text"] = lang_server_response.out;
             response.msg_type = "stream";
             response.parent_header = request.header;
             response.metadata = json_empty_object();
@@ -447,6 +456,25 @@ void shell_handler(void *iopub_socket, void *shell_socket,
             send_jupyter_response(iopub_socket, global_state, response);
 
         }
+
+        // if (lang_server_response.err.size()) {
+        //     // https://jupyter-client.readthedocs.io/en/stable/messaging.html#execution-errors
+        //     JupyterResponse response;
+        //     // content = {
+        //     //     'execution_count': EXECUTION_COUNT,
+        //     //     'data': lang_server_response.result,
+        //     //     'metadata': {}
+        //     // }
+        //     // send(iopub_stream, 'execute_result', content, parent_header=msg['header'])
+        //     response.content["data"] = lang_server_response.err;
+        //     response.content["metadata"] = json_empty_object();
+        //     response.parent_header = request.header;
+        //     response.msg_type = "error";
+        //     response.metadata = json_empty_object();
+        //     response.parent_header = request.header;
+        //     send_jupyter_response(iopub_socket, global_state, response);
+        // }
+
         {
             // content = {
             //     'execution_state': "idle",
@@ -526,6 +554,7 @@ int main(int argc, char **argv) {
     assert(argc == 2  && "expected config JSON file path");
     std::stringstream config_buffer;
     {
+        std::cout << "Starting up C++ kernel...path: |" << argv[1] << "|\n";
         std::ifstream config_file(argv[1]);
         config_buffer << config_file.rdbuf();
     }
@@ -548,12 +577,13 @@ int main(int argc, char **argv) {
     GlobalState global_state;
     global_state.key = config["key"].get<std::string>();
     global_state.engine_id = uuid4();
-    lean_initialize_runtime_module();
+    lean_initialize();
+    // lean_initialize_runtime_module();
     initialize_REPLLib(lean_io_mk_world());
+    // initialize_ir_interpreter();
     lean_io_mark_end_initialization();
 
     global_state.shell_state = lean_unwrap_io(mk_init_state(lean_io_mk_world()));
-
 
     // https://github.com/kazuho/picohash/blob/master/picohash.h
     // auth = hmac.HMAC(

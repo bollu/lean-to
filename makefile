@@ -7,8 +7,15 @@ run-cpp-console: build-cpp-kernel
 build-cpp-kernel:
 	mkdir -p build
 	# bear to generate compile_commands.json
-	bear -- clang++ asm-kernel.cpp build/ir/REPLLib.c -DLEAN_EXPORTING -o build/asm-kernel-cpp  -std=c++17 \
+	# from lean/lake: |supportInterpreter:| Whether to
+	# expose symbols within the executable to the Lean interpreter. This allows
+	# the executable to interpret Lean files (e.g., via Lean.Elab.runFrontend).
+	# Implementation-wise, this passes -rdynamic to the linker when building on
+	# a non-Windows systems. Defaults to false.
+	bear -- clang++ -g -O0 asm-kernel.cpp build/ir/REPLLib.c -DLEAN_EXPORTING -o build/asm-kernel-cpp  -std=c++17 \
 		-fsanitize=address -fsanitize=undefined -lzmq -lssl -lcrypto \
+		-rdynamic \
+		-Wl,--export-dynamic \
 		$(LEANLDFLAGS)
 
 # v WORKS
