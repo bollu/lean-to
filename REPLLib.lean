@@ -120,8 +120,15 @@ def mk_init_state : IO State := do
   let s : State := { env := ← mkEmptyEnvironment, maxRecDepth := defaultMaxRecDepth } 
   return s
 
+@[export tuple_fst]
+def tuple_fst (x: α × β): α := x.fst
+
+@[export tuple_snd]
+def tuple_snd (x: α × β): β := x.snd
+
 @[export run_code]
 def runCode (state: State) (code: String): IO (String × (String × (String × State))) :=
+  let k := (10, 20)
   runCommandElabM state (command2ElabMC code)
 
 

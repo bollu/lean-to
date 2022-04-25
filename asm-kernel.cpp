@@ -12,12 +12,26 @@
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include "json.hpp"
+#include "lean/lean.h"
+#include "lean/config.h"
 
 // ZMQ guide for C devs:
 // https://lqhl.me/resources/zguide-c.pdf
 
 
 using namespace nlohmann;
+
+// using lean_object = void;
+extern "C" {
+    lean_object* mk_init_state(lean_object*);
+    lean_object* run_code(lean_object*, lean_object*, lean_object*);
+    lean_object* tuple_fst(lean_object*);
+    lean_object* tuple_snd(lean_object*);
+    void lean_initialize_runtime_module();
+};
+// static inline char const * lean_string_cstr(b_lean_obj_arg o) {
+// LEAN_SHARED lean_obj_res lean_mk_string(char const * s);
+
 
 json json_empty_object() {
     // https://github.com/nlohmann/json/issues/2046#issuecomment-868980645
@@ -117,6 +131,7 @@ struct GlobalState {
     std::string key; // signing key is some random UUID
     std::string engine_id; // engine ID is some random UUID
     int shell_execution_count = 0;
+    lean_object *shell_state = nullptr;
 };
 
 // custom free function to free memory from zmq
@@ -217,6 +232,7 @@ void send_jupyter_response(void *socket, const GlobalState &globals,
     }
 }
 
+
 // handle shell request by replying on iopub and shell sockets
 // NOTE: we mutate execution counts stored in global_state
 void shell_handler(void *iopub_socket, void *shell_socket, 
@@ -233,7 +249,7 @@ void shell_handler(void *iopub_socket, void *shell_socket,
     std::cout << "[SHELL HANDLER] content: |" << request.content << "|\n";
 
     const std::string msg_type = request.header["msg_type"].get<std::string>();
-    std::cout << "[SHLLL HANDLER] message type: |" << msg_type << "|\n";
+    std::cout << "[SHELL HANDLER] message type: |" << msg_type << "|\n";
     if (msg_type == "kernel_info_request") {
         {
             JupyterResponse response;
@@ -345,7 +361,21 @@ void shell_handler(void *iopub_socket, void *shell_socket,
 
         const std::string code_to_execute = request.content["code"];
         // TODO: hook into lean here!
-        const ShellExecutionResponse lang_server_response("stdout", "stderr", "val");
+        
+        std::cout << "[SHELL HANDLER] run_code..........." << std::flush;
+        lean_object *run_return = run_code(global_state.shell_state, lean_mk_string(code_to_execute.c_str()), lean_io_mk_world());
+        std::cout << "!\n";
+        // std::string out(lean_string_cstr(tuple_fst(run_return)));
+
+        // run_return = tuple_snd(run_return);
+        // std::string err(lean_string_cstr(tuple_fst(run_return)));
+
+        // run_return = tuple_snd(run_return);
+        // std::string val(lean_string_cstr(tuple_fst(run_return)));
+
+        // global_state.shell_state = tuple_snd(run_return);
+        // const ShellExecutionResponse lang_server_response(out, err, out);
+        const ShellExecutionResponse lang_server_response("out", "err", "val");
 
         {
             // This tells the notebook what is being executed
@@ -376,8 +406,8 @@ void shell_handler(void *iopub_socket, void *shell_socket,
             //     'text': lang_server_response.stdout
             // }
             // send(iopub_stream, 'stream', content, parent_header=msg['header'])
-            response.content["name"] = "stdout";
-            response.content["text"] = lang_server_response.out;
+            response.content["name"] = "stderr";
+            response.content["text"] = "XXXXXXXX" + lang_server_response.out + "XXXXXXX";
             response.msg_type = "stream";
             response.parent_header = request.header;
             response.metadata = json_empty_object();
@@ -447,6 +477,8 @@ void shell_handler(void *iopub_socket, void *shell_socket,
             response.parent_header = request.header;
             send_jupyter_response(shell_socket, global_state, response);
         }
+        global_state.shell_execution_count++;
+
 
     }
     else {
@@ -469,6 +501,7 @@ std::string zmq_msg_recv_str(void *s_) {
     free(s);
     return out;
 }
+
 
 int main(int argc, char **argv) {
     srand(0);
@@ -498,6 +531,8 @@ int main(int argc, char **argv) {
     GlobalState global_state;
     global_state.key = config["key"].get<std::string>();
     global_state.engine_id = uuid4();
+    lean_initialize_runtime_module();
+    global_state.shell_state = mk_init_state(lean_io_mk_world());
 
 
     // https://github.com/kazuho/picohash/blob/master/picohash.h

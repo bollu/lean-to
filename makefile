@@ -7,7 +7,7 @@ run-cpp-console: build-cpp-kernel
 build-cpp-kernel:
 	mkdir -p build
 	# bear to generate compile_commands.json
-	bear -- clang++ asm-kernel.cpp build/ir/REPLLib.c -o build/asm-kernel-cpp  -std=c++17 \
+	bear -- clang++ asm-kernel.cpp build/ir/REPLLib.c -DLEAN_EXPORTING -o build/asm-kernel-cpp  -std=c++17 \
 		-fsanitize=address -fsanitize=undefined -lzmq -lssl -lcrypto \
 		$(LEANLDFLAGS)
 
