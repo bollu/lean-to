@@ -456,6 +456,22 @@ void shell_handler(void *iopub_socket, void *shell_socket,
             response.metadata = json_empty_object();
             send_jupyter_response(iopub_socket, global_state, response);
         }
+
+        if (lang_server_response.err.size()) {
+            JupyterResponse response;
+            // content = {
+            //     'name': "stdout",
+            //     'text': lang_server_response.stdout
+            // }
+            // send(iopub_stream, 'stream', content, parent_header=msg['header'])
+            response.content["name"] = "stderr";
+            response.content["text"] = lang_server_response.err;
+            response.msg_type = "stream";
+            response.parent_header = request.header;
+            response.metadata = json_empty_object();
+            send_jupyter_response(iopub_socket, global_state, response);
+        }
+
         {
             JupyterResponse response;
             // content = {
@@ -554,7 +570,11 @@ void shell_handler(void *iopub_socket, void *shell_socket,
 
 
     }
+    else if (msg_type == "comm_info_request") {
+        std::cout << "[SHELL HANDLER] Not handing comm_info_request";
+    }
     else {
+        std::cout << "[SHELL HANDLER] ===unknown message type: |" << msg_type << "|\n";
         assert(false && "unknown message type");
     }
 };

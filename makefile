@@ -1,11 +1,11 @@
 .PHONY: run build-cpp-kernel
 LEANLDFLAGS=$(shell leanc --print-ldflags)
 
+run-cpp-notebook: build-cpp-kernel
+	jupyter notebook --ip='0.0.0.0' --kernel asmcpp
 run-cpp-console: build-cpp-kernel
 	jupyter console --kernel asmcpp
 
-run-cpp-notebook: build-cpp-kernel
-	jupyter notebook --ip='0.0.0.0' --kernel asmcpp
 
 build-cpp-kernel:
 	mkdir -p build
