@@ -4,6 +4,9 @@ LEANLDFLAGS=$(shell leanc --print-ldflags)
 run-cpp-console: build-cpp-kernel
 	jupyter console --kernel asmcpp
 
+run-cpp-notebook: build-cpp-kernel
+	jupyter notebook --ip='0.0.0.0' --kernel asmcpp
+
 build-cpp-kernel:
 	mkdir -p build
 	# bear to generate compile_commands.json
@@ -27,7 +30,7 @@ run-console-old:
 	jupyter console --KernelManager.kernel_cmd="['python3', './simple_kernel.py','{connection_file}']"
 
 run-notebook: install-kernel
-	jupyter notebook --ip='0.0.0.0' --kernel as
+	jupyter notebook --ip='0.0.0.0' --kernel asm
 		
 
 # v BORKED [reasons unknown]

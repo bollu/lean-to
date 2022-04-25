@@ -121,7 +121,8 @@ struct ShellRequest {
     json parent_header;
     json metadata;
     json content;
-    std::vector<std::string> identities;
+    // we must maintain real buffers
+    std::vector<std::tuple<void *, int, std::string>> identities;
 };
 
 // information to be sent back to jupyter via ZMQ
@@ -131,7 +132,8 @@ struct JupyterResponse {
     json parent_header; // header of previous message we are replying to.
     json metadata; // '''metadata''' as per jupyter protocol demands.
     // TODO: should this be a list? will this ever be a list?
-    std::vector<std::string> identities; // routing information extracted from request.
+    // we must maintain real buffers
+    std::vector<std::tuple<void *, int, std::string>> identities; // routing information extracted from request.
 };
 
 // information that is sent back when a shell response is made.
@@ -237,7 +239,23 @@ void send_jupyter_response(void *socket, const GlobalState &globals,
     // stream.flush()
     // construct response.
     std::vector<std::string> parts;
-    parts.insert(parts.end(), response.identities.begin(), response.identities.end());
+    // parts.insert(parts.end(), response.identities.begin(), response.identities.end());
+    //
+    for(int i = 0; i < response.identities.size(); ++i) {
+        void *data = std::get<0>(response.identities[i]);
+        const int size = std::get<1>(response.identities[i]);
+        int rc = 0;
+        zmq_msg_t msg;
+        rc = zmq_msg_init(&msg);
+        assert(rc == 0);
+        rc = zmq_msg_init_size(&msg, size);
+        assert (rc == 0);
+        /* Fill in message content with 'AAAAAA' */
+        // NOTE: data will be freed here!
+        zmq_msg_init_data(&msg, (void*)data, size, free_c_string_for_zmq, NULL);
+        rc = zmq_msg_send(&msg, socket, ZMQ_SNDMORE);
+        assert(rc != -1);
+    }
     parts.push_back(DELIM);
     parts.push_back(signature.str());
     parts.insert(parts.end(), msg_list.begin(), msg_list.end());
@@ -257,7 +275,7 @@ void shell_handler(void *iopub_socket, void *shell_socket,
     GlobalState &global_state, const ShellRequest request) {
     std::cout << "[SHELL HANDLER] identities: ";
     for(int i = 0; i < request.identities.size(); ++i) {
-        std::cout << "|" << request.identities[i] << "|";
+        std::cout << "|" << std::get<2>(request.identities[i]) << "|";
     }
 
     std::cout << "\n";
@@ -543,7 +561,7 @@ void shell_handler(void *iopub_socket, void *shell_socket,
 
 
 // ZMQ wrapper to recieve a message and wrap in a std::string.
-std::string zmq_msg_recv_str(void *s_) {
+std::tuple<void*, int, std::string> zmq_msg_recv_str(void *s_) {
     zmq_msg_t msg;
     zmq_msg_init(&msg);
     int rc = zmq_msg_recv(&msg, s_, 0);
@@ -553,8 +571,8 @@ std::string zmq_msg_recv_str(void *s_) {
     memcpy(s, zmq_msg_data(&msg), size * sizeof(unsigned char));
     s[size] = 0;
     std::string out(s);
-    free(s);
-    return out;
+    // TODO: we're leaking s here!
+    return {s, size, out};
 }
 
 
@@ -699,17 +717,17 @@ int main(int argc, char **argv) {
             std::cout << "[KERNEL] [CONTROL] has request [" << 
                 items[CONTROL].revents << "]\n";
             assert(items[CONTROL].revents & ZMQ_POLLIN);
-            std::string msg = zmq_msg_recv_str(sockets[CONTROL]);
+            std::string msg = std::get<2>(zmq_msg_recv_str(sockets[CONTROL]));
             std::cout << "[KERNEL] [CONTROL] |" << msg << "|\n";
         }
         if (items[SHELL].revents & ZMQ_POLLIN) {
             std::cout << "[KERNEL] [SHELL] has request\n";
 
             // http://api.zeromq.org/2-0:zmq-recv
-            std::vector<std::string> messages;
+            std::vector<std::tuple<void *, int, std::string>> messages;
             int64_t more = 0;
             do {
-                std::string s = zmq_msg_recv_str(sockets[SHELL]);
+                std::tuple<void *, int, std::string> s = zmq_msg_recv_str(sockets[SHELL]);
                 messages.push_back(s);
                 size_t ll_size = sizeof(int64_t);
                 rc = zmq_getsockopt(sockets[SHELL], ZMQ_RCVMORE, &more, &ll_size);
@@ -719,8 +737,8 @@ int main(int argc, char **argv) {
             // TODO: will delim_index ever not be equal to 1?
             int delim_index = -1; // index of delimiter
             for(int i = 0; i < messages.size(); ++i) {
-                if (messages[i] == DELIM) { delim_index = i; }
-                std::cout << "  - " << messages[i] << "\n";
+                if (std::get<2>(messages[i]) == DELIM) { delim_index = i; }
+                std::cout << "  - " << std::get<2>(messages[i]) << "\n";
             }
             assert(delim_index != -1 && "unable to find delimiter");
             assert(delim_index == 1 && "GUESS: delim_index will always be 1");
@@ -733,10 +751,10 @@ int main(int argc, char **argv) {
             // m['metadata']      = decode(msg_frames[2])
             // m['content']       = decode(msg_frames[3])
             ShellRequest request;
-            request.header = json::parse(messages[delim_index + 2 + 0]);
-            request.parent_header = json::parse(messages[delim_index + 2 + 1]);
-            request.metadata = json::parse(messages[delim_index + 2 + 2]);
-            request.content = json::parse(messages[delim_index + 2 + 3]);
+            request.header = json::parse(std::get<2>(messages[delim_index + 2 + 0]));
+            request.parent_header = json::parse(std::get<2>(messages[delim_index + 2 + 1]));
+            request.metadata = json::parse(std::get<2>(messages[delim_index + 2 + 2]));
+            request.content = json::parse(std::get<2>(messages[delim_index + 2 + 3]));
 
             // TODO: should this be a list? will this ever be a list?
             for(int i = 0; i < delim_index; ++i) {
