@@ -511,14 +511,25 @@ void shell_handler(void *iopub_socket, void *shell_socket,
             // send(shell_stream, 'execute_reply', content, metadata=metadata,
             //     parent_header=msg['header'], identities=identities)
             // ##################################################################
-            response.content["status"] = "ok";
-            response.content["execution_count"] = global_state.shell_execution_count;
-            response.content["user_variable"] = json_empty_object();
-            response.content["payload"] = json_empty_list();
-            response.content["user_expressions"] = json_empty_object();
-            response.msg_type = "execute_reply";
-            response.identities = request.identities;
-            response.parent_header = request.header;
+            if (err.size()) {
+                response.content["status"] = "err";
+                response.content["execution_count"] = global_state.shell_execution_count;
+                response.content["ename"] = "<<Error Name>>";
+                response.content["evalue"] = lang_server_response.err;
+                response.content["traceback"] = json_empty_list();
+                response.msg_type = "execute_reply";
+                response.identities = request.identities;
+                response.parent_header = request.header;
+            } else {
+                response.content["status"] = "ok";
+                response.content["execution_count"] = global_state.shell_execution_count;
+                response.content["user_variable"] = json_empty_object();
+                response.content["payload"] = json_empty_list();
+                response.content["user_expressions"] = json_empty_object();
+                response.msg_type = "execute_reply";
+                response.identities = request.identities;
+                response.parent_header = request.header;
+            }
             send_jupyter_response(shell_socket, global_state, response);
         }
         global_state.shell_execution_count++;
